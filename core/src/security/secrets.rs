@@ -19,10 +19,21 @@ pub fn set(name: &str, value: &str) -> Result<()> {
 }
 
 /// `Ok(None)` means the secret genuinely isn't set — not a load failure.
+///
+/// `NoStorageAccess` / `NoDefaultStore` are treated the same as a missing
+/// entry: headless Linux (CI, servers without a D-Bus Secret Service session)
+/// can't distinguish "not set" from "no keyring available", and callers already
+/// surface that as `SecretNotSet` with a clear fix (`shaic mcp secret set`).
 pub fn get(name: &str) -> Result<Option<String>> {
-    match entry(name)?.get_password() {
+    let Some(entry) = entry_for_get(name)? else {
+        return Ok(None);
+    };
+    match entry.get_password() {
         Ok(v) => Ok(Some(v)),
-        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(keyring::Error::NoEntry)
+        | Err(keyring::Error::NoStorageAccess(_))
+        | Err(keyring::Error::NoDefaultStore)
+        | Err(keyring::Error::PlatformFailure(_)) => Ok(None),
         Err(e) => Err(keyring_err(e)),
     }
 }
@@ -43,6 +54,16 @@ pub fn list_names() -> Result<Vec<String>> {
 
 fn entry(name: &str) -> Result<keyring::Entry> {
     keyring::Entry::new(SERVICE, name).map_err(keyring_err)
+}
+
+/// `Ok(None)` when the credential store itself isn't available (headless CI /
+/// no D-Bus session). Callers map that to `SecretNotSet`.
+fn entry_for_get(name: &str) -> Result<Option<keyring::Entry>> {
+    match keyring::Entry::new(SERVICE, name) {
+        Ok(e) => Ok(Some(e)),
+        Err(keyring::Error::NoDefaultStore) | Err(keyring::Error::NoStorageAccess(_)) => Ok(None),
+        Err(e) => Err(keyring_err(e)),
+    }
 }
 
 fn keyring_err(e: keyring::Error) -> Error {
