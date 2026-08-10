@@ -1,0 +1,24 @@
+[package]
+name = "shaic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "shaic"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+rpassword.workspace = true
+shaic-core.workspace = true
+shaic-tui.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true
