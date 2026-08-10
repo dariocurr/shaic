@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::Command;
 
 use shaic_core::model::{AgentId, Frontmatter, Item, ItemKind, Scope};
@@ -12,6 +13,21 @@ fn init_bare_remote() -> tempfile::TempDir {
         .unwrap();
     assert!(status.success());
     dir
+}
+
+/// Local-only fake identity so commits work on CI without a real git config.
+fn set_test_git_identity(repo: &Path) {
+    for (key, value) in [
+        ("user.name", "shaic-test"),
+        ("user.email", "shaic-test@example.com"),
+    ] {
+        let status = Command::new("git")
+            .args(["config", key, value])
+            .current_dir(repo)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
 }
 
 fn sample_item(name: &str) -> Item {
@@ -37,12 +53,14 @@ fn push_then_pull_from_a_second_clone_round_trips() {
 
     let store1_dir = tempfile::tempdir().unwrap();
     let store1 = Store::init(store1_dir.path().join("store"), Some(&remote_url)).unwrap();
+    set_test_git_identity(store1.root());
     store1.save_item(&sample_item("first-rule")).unwrap();
     let push_result = store1.push(false).unwrap();
     assert!(push_result.committed);
 
     let store2_dir = tempfile::tempdir().unwrap();
     let store2 = Store::init(store2_dir.path().join("store"), Some(&remote_url)).unwrap();
+    set_test_git_identity(store2.root());
     let items = store2.list_items(ItemKind::Rule).unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].name(), "first-rule");
@@ -55,11 +73,13 @@ fn divergent_histories_hard_fail_instead_of_merging() {
 
     let store1_dir = tempfile::tempdir().unwrap();
     let store1 = Store::init(store1_dir.path().join("store"), Some(&remote_url)).unwrap();
+    set_test_git_identity(store1.root());
     store1.save_item(&sample_item("shared-base")).unwrap();
     store1.push(false).unwrap();
 
     let store2_dir = tempfile::tempdir().unwrap();
     let store2 = Store::init(store2_dir.path().join("store"), Some(&remote_url)).unwrap();
+    set_test_git_identity(store2.root());
 
     // Both clones diverge from the shared base without syncing with each other.
     store1.save_item(&sample_item("from-machine-a")).unwrap();

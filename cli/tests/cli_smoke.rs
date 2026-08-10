@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::Command as StdCommand;
 
 use assert_cmd::Command;
@@ -11,6 +12,17 @@ fn init_bare_remote() -> tempfile::TempDir {
         .unwrap();
     assert!(status.success());
     dir
+}
+
+/// Fake identity for the temp `$HOME` used by this smoke test — CI runners
+/// (and isolated HOMEs) have no `user.name`/`user.email`, and shaic must not
+/// invent one for real users.
+fn write_test_gitconfig(home: &Path) {
+    std::fs::write(
+        home.join(".gitconfig"),
+        "[user]\n\tname = shaic-test\n\temail = shaic-test@example.com\n",
+    )
+    .unwrap();
 }
 
 /// A fake `$EDITOR` that overwrites whatever file it's given with fixed,
@@ -32,6 +44,7 @@ fn fake_editor() -> tempfile::TempPath {
 #[test]
 fn init_skill_add_sync_push_end_to_end() {
     let home = tempfile::tempdir().unwrap();
+    write_test_gitconfig(home.path());
     let remote = init_bare_remote();
     let remote_url = remote.path().to_string_lossy().into_owned();
     let project = tempfile::tempdir().unwrap();
@@ -90,6 +103,7 @@ fn init_skill_add_sync_push_end_to_end() {
 
     // A second, independent clone should see the same content after `pull`.
     let home2 = tempfile::tempdir().unwrap();
+    write_test_gitconfig(home2.path());
     Command::cargo_bin("shaic")
         .unwrap()
         .env("HOME", home2.path())
