@@ -1,7 +1,6 @@
 class Shaic < Formula
   desc "Sync AI-agent skills, rules, commands, and MCP servers via git"
   homepage "https://github.com/dariocurr/shaic"
-  version "0.1.0"
   license "MIT"
 
   on_macos do

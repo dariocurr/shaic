@@ -29,7 +29,6 @@ cat >"${ROOT}/packaging/homebrew/shaic.rb" <<EOF
 class Shaic < Formula
   desc "Sync AI-agent skills, rules, commands, and MCP servers via git"
   homepage "https://github.com/dariocurr/shaic"
-  version "${VERSION}"
   license "MIT"
 
   on_macos do
