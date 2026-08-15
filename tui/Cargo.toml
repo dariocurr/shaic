@@ -1,0 +1,19 @@
+[package]
+name = "shaic-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+description = "Terminal UI for shaic"
+rust-version.workspace = true
+
+[lib]
+name = "shaic_tui"
+path = "src/lib.rs"
+
+[dependencies]
+shaic-core.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true

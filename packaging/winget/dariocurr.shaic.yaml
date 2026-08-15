@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.5.0.schema.json
+PackageIdentifier: dariocurr.shaic
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: dariocurr
+PackageName: shaic
+License: MIT
+ShortDescription: Sync AI-agent skills, rules, commands, and MCP servers via git
+Moniker: shaic
+Tags:
+  - ai
+  - git
+  - mcp
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: shaic.exe
+        PortableCommandAlias: shaic
+    InstallerUrl: https://github.com/dariocurr/shaic/releases/download/v0.1.0/shaic-x86_64-pc-windows-msvc.zip
+    InstallerSha256: d6d662b4b02e2c6d9ff1c3d52e58810ef9f85b850eb055a1be65afbb133eb2b6
+  - Architecture: arm64
+    InstallerType: zip
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: shaic.exe
+        PortableCommandAlias: shaic
+    InstallerUrl: https://github.com/dariocurr/shaic/releases/download/v0.1.0/shaic-aarch64-pc-windows-msvc.zip
+    InstallerSha256: e5bed01a6ea6eba33b584085e931c8a308cf525c2be28d142a3f2278807a674e
+ManifestType: singleton
+ManifestVersion: 1.5.0

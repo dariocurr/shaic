@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = ["core", "cli", "tui"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/dariocurr/shaic"
+homepage = "https://github.com/dariocurr/shaic"
+readme = "README.md"
+rust-version = "1.85"
+
+[workspace.dependencies]
+assert_cmd = "2.2"
+assert_fs = "1.1"
+clap = { version = "4.6", features = ["derive"] }
+crossterm = "0.29"
+dirs = "6.0"
+# Platform keyring backends are selected at compile time.
+keyring = { version = "4.1", features = ["apple-native-keyring-store", "dbus-secret-service-keyring-store", "windows-native-keyring-store"] }
+libc = "0.2"
+predicates = "3.1"
+ratatui = "0.30"
+regex = "1.13"
+rpassword = "7.5"
+serde = { version = "1.0", features = ["derive"] }
+# `preserve_order` is load-bearing, not a nicety: `materialize::mcp` rewrites
+# whole shared JSON config files (including `~/.claude.json`, which also holds
+# Claude Code's own auth/session state). Without it, every rewrite would
+# reorder the user's top-level keys into alphabetical order — a huge, alarming
+# diff for a one-server change. Covered by
+# `write_managed_json_object_preserves_key_order`.
+serde_json = { version = "1.0", features = ["preserve_order"] }
+serde_yaml_ng = "0.10"
+sha2 = "0.10"
+shaic-core = { path = "core", version = "0.1.0" }
+shaic-tui = { path = "tui", version = "0.1.0" }
+tempfile = "3.27"
+thiserror = "2.0"
+toml = "1.1"
+toml_edit = "0.24"
+walkdir = "2.5"
