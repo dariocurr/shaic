@@ -153,10 +153,15 @@ fn verify_checksum(checksum_file: &Path, archive: &Path) -> Result<()> {
 
     use sha2::{Digest, Sha256};
     let bytes = fs::read(archive).context("read downloaded archive")?;
-    let digest = format!("{:x}", Sha256::digest(bytes));
-    if digest != expected {
+    let digest = Sha256::digest(bytes);
+    let mut hex = String::with_capacity(64);
+    for b in digest {
+        use std::fmt::Write;
+        write!(&mut hex, "{:02x}", b).expect("hex write");
+    }
+    if hex != expected {
         bail!(
-            "checksum mismatch for {} (expected {expected}, got {digest})",
+            "checksum mismatch for {} (expected {expected}, got {hex})",
             archive.display()
         );
     }

@@ -299,7 +299,14 @@ impl TrackedContent {
 fn digest(tracked: TrackedContent, contents: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(contents.as_bytes());
-    format!("{}{:x}", tracked.prefix(), hasher.finalize())
+    let digest = hasher.finalize();
+    // `sha2` 0.11 changed digest output type. Encode explicitly.
+    let mut hex = String::with_capacity(64);
+    for b in digest {
+        use std::fmt::Write;
+        write!(&mut hex, "{:02x}", b).expect("hex write");
+    }
+    format!("{}{}", tracked.prefix(), hex)
 }
 
 /// Whether `raw` is a digest this build knows how to compare against.
