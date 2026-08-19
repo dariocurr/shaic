@@ -99,7 +99,7 @@ jobs:
           gh release create "${{ github.ref_name }}" dist/* \
             --title "${{ github.ref_name }}" \
             --notes-file release-notes.md
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         continue-on-error: true
         with:
           subject-path: dist/shaic-*.{tar.gz,zip}
