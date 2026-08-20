@@ -5,23 +5,23 @@ class Shaic < Formula
 
   on_macos do
     on_arm do
-      url "https://github.com/dariocurr/shaic/releases/download/v0.1.0/shaic-aarch64-apple-darwin.tar.gz"
-      sha256 "9783198f3b2ec61e6aa657bc63e52c4c067b3e2d1cea6eac6bb5bb8e97ee7f83"
+      url "https://github.com/dariocurr/shaic/releases/download/v0.2.0/shaic-aarch64-apple-darwin.tar.gz"
+      sha256 "e2606b9b6da91917679b2f176805c5aa14586e14380fd7bdb8e3174923490f51"
     end
     on_intel do
-      url "https://github.com/dariocurr/shaic/releases/download/v0.1.0/shaic-x86_64-apple-darwin.tar.gz"
-      sha256 "a5db9f1a88fa6b39f864fa6c0c43c392dbd5a8229411680a51a13e50d36f6c00"
+      url "https://github.com/dariocurr/shaic/releases/download/v0.2.0/shaic-x86_64-apple-darwin.tar.gz"
+      sha256 "65f91a1a8f0897318348dedafc3b3c40dafbd1ac92b229ae49baad256cbe95bc"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/dariocurr/shaic/releases/download/v0.1.0/shaic-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "8e477f65608be80c6b3cd7fa4cb45be4027f6c4213bf14c0ad77506a7a3227a9"
+      url "https://github.com/dariocurr/shaic/releases/download/v0.2.0/shaic-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "8c66ca2e0ea36c41bd2d66ff34d85d21d25102f40a5b69d30cd438ecc1a62c4a"
     end
     on_intel do
-      url "https://github.com/dariocurr/shaic/releases/download/v0.1.0/shaic-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "990786401fbb09e5a37b697c0337e2ee172da10316c7ae3a76866ebcfcd2e006"
+      url "https://github.com/dariocurr/shaic/releases/download/v0.2.0/shaic-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "c1994a1b7da7651de7e146bf00c485885bdc8e676dfa6fae6b327935e0f9ae3f"
     end
   end
 
