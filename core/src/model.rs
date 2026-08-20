@@ -37,18 +37,20 @@ pub enum AgentId {
     Windsurf,
     Copilot,
     Codex,
+    OpenCode,
     Gemini,
     Antigravity,
     Cline,
 }
 
 impl AgentId {
-    pub const ALL: [AgentId; 8] = [
+    pub const ALL: [AgentId; 9] = [
         AgentId::ClaudeCode,
         AgentId::Cursor,
         AgentId::Windsurf,
         AgentId::Copilot,
         AgentId::Codex,
+        AgentId::OpenCode,
         AgentId::Gemini,
         AgentId::Antigravity,
         AgentId::Cline,
@@ -61,6 +63,7 @@ impl AgentId {
             AgentId::Windsurf => "windsurf",
             AgentId::Copilot => "copilot",
             AgentId::Codex => "codex",
+            AgentId::OpenCode => "opencode",
             AgentId::Gemini => "gemini",
             AgentId::Antigravity => "antigravity",
             AgentId::Cline => "cline",

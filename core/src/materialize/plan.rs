@@ -231,9 +231,28 @@ fn items_for(
     Ok(items
         .into_iter()
         .filter(|i| {
-            i.frontmatter.scope.contains(&scope) && i.frontmatter.agents.contains(&agent.id())
+            i.frontmatter.scope.contains(&scope) && item_targets_agent(i, agent, kind, scope)
         })
         .collect())
+}
+
+/// Whether `item` should materialize for `agent`. Usually this is just
+/// `agents.contains(agent)`. Project `AGENTS.md` is special: Codex and
+/// OpenCode share one managed region, so a multi-agent sync must write the
+/// union of rules aimed at either writer — otherwise the last agent wipes
+/// the other's rules from disk while they remain in the store.
+fn item_targets_agent(item: &Item, agent: &dyn Agent, kind: ItemKind, scope: Scope) -> bool {
+    if item.frontmatter.agents.contains(&agent.id()) {
+        return true;
+    }
+    kind == ItemKind::Rule
+        && scope == Scope::Project
+        && matches!(agent.id(), AgentId::Codex | AgentId::OpenCode)
+        && item
+            .frontmatter
+            .agents
+            .iter()
+            .any(|a| matches!(a, AgentId::Codex | AgentId::OpenCode))
 }
 
 /// How a rendered path's owner is named in a collision warning. The item name

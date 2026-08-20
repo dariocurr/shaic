@@ -14,7 +14,8 @@ use crate::security::secrets;
 ///
 /// A server can describe stdio transport (`command`), HTTP transport (`url` +
 /// `bearer_token_env_var`), or both — agents pick the shape they can use at
-/// materialize time (JSON agents get stdio; Codex can get either).
+/// materialize time (most JSON agents get stdio; Codex and OpenCode can get
+/// either).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct McpServer {

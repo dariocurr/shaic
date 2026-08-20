@@ -85,7 +85,8 @@ the real on-disk convention, ship it `experimental_read_only()` (see
 
 `mcp_target()` (default `None`) is separate and optional. Override it when shaic
 can safely merge MCP servers into the agent's on-disk config — either a
-dedicated MCP JSON file (see `cursor.rs`) or a shared settings file where only a
-named key / TOML table prefix is rewritten (see Claude Code global
-`~/.claude.json` and Codex `~/.codex/config.toml`). If you cannot preserve
-unrelated settings with certainty, leave MCP unsupported.
+dedicated MCP JSON file (see `cursor.rs`), OpenCode's shared `opencode.json`
+`mcp` object (`OpenCodeJson`), or a shared settings file where only a named key
+/ TOML table prefix is rewritten (see Claude Code global `~/.claude.json` and
+Codex `~/.codex/config.toml`). If you cannot preserve unrelated settings with
+certainty, leave MCP unsupported.

@@ -24,7 +24,7 @@ AGENTS.md                                         │  shaic sync
 .github/copilot-instructions.md                   ▼
 ~/.claude.json  (mcpServers)                Claude  Cursor  Codex
 .cursor/mcp.json                            Copilot Windsurf Gemini
-~/.codex/config.toml                        Cline   …
+~/.codex/config.toml                        Cline   OpenCode …
 ```
 
 Edit in Cursor, then `shaic import`. `shaic sync` writes every agent
@@ -53,6 +53,7 @@ Or drive it from the dashboard — `shaic tui`:
 │ Windsurf                  ● in-sync                        │
 │ GitHub Copilot            ● in-sync                        │
 │ OpenAI Codex CLI          ▲ drift                          │
+│ OpenCode                  ● in-sync                        │
 │ Google Gemini CLI         ● in-sync                        │
 │ Cline                     ✕ error                          │
 │ Google Antigravity        ◐ experimental, read-only        │
@@ -87,8 +88,8 @@ even is. shaic is the source of truth. Agents are just render targets.
 
 | You write once | shaic writes everywhere |
 | --- | --- |
-| Skills, rules, slash commands | Claude, Cursor, Windsurf, Copilot, Codex, Gemini, Cline |
-| MCP server defs (`command`, `args`, `url`) | Claude, Cursor, Windsurf, Copilot, Codex — not Gemini, Cline, or Antigravity |
+| Skills, rules, slash commands | Claude, Cursor, Windsurf, Copilot, Codex, OpenCode, Gemini, Cline |
+| MCP server defs (`command`, `args`, `url`) | Claude, Cursor, Windsurf, Copilot, Codex, OpenCode — not Gemini, Cline, or Antigravity |
 | Secrets | OS keychain, per machine. Stdio `env` values are resolved into the agent config file at sync; they never go in git. |
 
 ---
@@ -165,6 +166,7 @@ dashboard.
 | Windsurf | `.windsurf/rules/*.md` + `workflows/*.md` (or legacy `.windsurfrules`) | project |
 | GitHub Copilot | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, `.github/prompts/*.prompt.md` | project |
 | OpenAI Codex CLI | `AGENTS.md`; skills at `~/.codex/skills/` (global) and `.codex/skills/` (project) | project (+ best-effort `~/.codex/`) |
+| OpenCode | `AGENTS.md`; skills/commands at `~/.config/opencode/` (global) and `.opencode/` (project) | global + project |
 | Google Gemini CLI | `GEMINI.md` | global + project |
 | Cline | `.clinerules/` (or legacy single `.clinerules` file) | project |
 | Google Antigravity | *experimental, read-only* — `.antigravity/rules/*.md` is discovered but never written; the write convention is unconfirmed | project |
@@ -180,6 +182,7 @@ Only agents whose MCP config shaic can safely merge into:
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` | global only |
 | GitHub Copilot (VS Code) | `.vscode/mcp.json` (`servers` key, not `mcpServers`) | project only |
 | Codex CLI | `~/.codex/config.toml` / `.codex/config.toml` | global + project |
+| OpenCode | `opencode.json` / `~/.config/opencode/opencode.json` (`mcp` key; OpenCode's `type`/`command`-array shape) | global + project |
 
 Gemini CLI, Cline, and Antigravity are not write-supported for MCP yet.
 
@@ -226,8 +229,8 @@ Two transports live in the same canonical model. Agents pick what they can use:
 
 | Transport | Fields | Typical agents | Credential handling |
 | --- | --- | --- | --- |
-| **stdio** | `command`, `args`, `env` | Cursor, Claude Code, Windsurf, Copilot | `{ secret = "NAME" }` in `env` → value resolved into the agent config file |
-| **HTTP** | `url`, `bearer_token_env_var` | Codex | shaic writes the env var *name* into `config.toml`; Codex reads the value from the process environment at launch |
+| **stdio** | `command`, `args`, `env` | Cursor, Claude Code, Windsurf, Copilot, OpenCode | `{ secret = "NAME" }` in `env` → value resolved into the agent config file |
+| **HTTP** | `url`, `bearer_token_env_var` | Codex, OpenCode | Codex: env var *name* in `config.toml`. OpenCode: `Authorization: Bearer {env:NAME}` header. Value stays in the process environment / keychain. |
 
 ```sh
 shaic mcp add my-server          # opens $EDITOR with a TOML template
@@ -276,9 +279,9 @@ is set in the keychain. That is a guardrail, not a substitute for exporting
 ### Dual transport
 
 One store entry can hold both stdio and HTTP fields. Each agent materializes the
-transport it supports; `shaic import` **merges** so a Codex import does not
-wipe stdio (or the reverse). Prefer `agents = ["codex"]` for HTTP-only servers
-so they are not pushed to JSON agents that cannot use them.
+transport it supports; `shaic import` **merges** so a Codex/OpenCode import does
+not wipe stdio (or the reverse). Prefer `agents = ["codex"]` (or `["opencode"]`)
+for HTTP-only servers so they are not pushed to JSON agents that cannot use them.
 
 `shaic mcp secret set <name>` stores the real value in this machine's OS
 keychain (macOS Keychain / Linux Secret Service) — never in the git-tracked
@@ -336,6 +339,10 @@ file. The merge only ever touches the top-level `mcpServers` key (every other
 key round-trips untouched), but a bug there has a bigger blast radius than any
 other MCP target. If that trade-off makes you uneasy, manage Claude Code's
 global MCP servers by hand instead.
+
+OpenCode's `opencode.json` (project and `~/.config/opencode/opencode.json`) is
+the same kind of shared settings file — model, permissions, and more. Only the
+top-level `mcp` key is rewritten; everything else is preserved.
 
 Codex's `config.toml` is a large shared settings file (model, plugins, hooks,
 …). The merge only rewrites `[mcp_servers.*]` tables shaic manages; top-level

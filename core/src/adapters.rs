@@ -10,6 +10,7 @@ pub mod copilot;
 pub mod cursor;
 pub mod gemini;
 pub mod google_antigravity;
+pub mod opencode;
 pub mod windsurf;
 
 #[derive(Debug, Clone)]
@@ -40,6 +41,10 @@ pub struct McpTarget {
 pub enum McpConfigFormat {
     /// Dedicated JSON file: `{ "mcpServers": { "name": { ... } } }`.
     Json { servers_key: &'static str },
+    /// OpenCode shared settings: `{ "mcp": { "name": { "type": "local"|"remote", ... } } }`.
+    /// Stdio → `type: local` with `command` as `[cmd, ...args]` and `environment`;
+    /// HTTP → `type: remote` with `url` and optional Bearer via `{env:NAME}`.
+    OpenCodeJson { servers_key: &'static str },
     /// Shared TOML settings file: `[mcp_servers.name]` tables (Codex).
     TomlTables { table_prefix: &'static str },
 }
@@ -110,7 +115,8 @@ pub trait Agent: Send + Sync {
     /// write there. `None` (the default) means "not supported for MCP" —
     /// either the agent has no MCP support, or its config shape isn't safe
     /// to merge into yet. Override with `McpConfigFormat::Json` for a
-    /// dedicated MCP file, or `McpConfigFormat::TomlTables` for a shared
+    /// dedicated MCP file, `McpConfigFormat::OpenCodeJson` for OpenCode's
+    /// `mcp` object shape, or `McpConfigFormat::TomlTables` for a shared
     /// settings file where only `[mcp_servers.*]` is rewritten (Codex).
     /// Independent of `supported_scopes()`.
     fn mcp_target(&self, _scope: Scope, _project_root: &Path) -> Option<McpTarget> {
@@ -127,6 +133,7 @@ static REGISTRY: &[&dyn Agent] = &[
     &windsurf::Windsurf,
     &copilot::Copilot,
     &codex::Codex,
+    &opencode::OpenCode,
     &gemini::Gemini,
     &google_antigravity::Antigravity,
     &cline::Cline,
@@ -140,7 +147,7 @@ pub fn registry() -> &'static [&'static dyn Agent] {
 ///
 /// A total `match` rather than a search through `registry()`: it costs
 /// nothing (this is called inside nested agent x scope x kind loops, where it
-/// used to box all eight adapters just to hand back one), and it removes the
+/// used to box all adapters just to hand back one), and it removes the
 /// `expect("registry() covers every AgentId variant")` that stood in for what
 /// the compiler can check — adding an `AgentId` variant without an adapter is
 /// now a build error, not a panic at runtime.
@@ -151,6 +158,7 @@ pub fn by_id(id: AgentId) -> &'static dyn Agent {
         AgentId::Windsurf => &windsurf::Windsurf,
         AgentId::Copilot => &copilot::Copilot,
         AgentId::Codex => &codex::Codex,
+        AgentId::OpenCode => &opencode::OpenCode,
         AgentId::Gemini => &gemini::Gemini,
         AgentId::Antigravity => &google_antigravity::Antigravity,
         AgentId::Cline => &cline::Cline,

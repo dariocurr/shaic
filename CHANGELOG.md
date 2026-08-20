@@ -2,6 +2,14 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## 0.2.0
+
+### Added
+
+- OpenCode agent adapter: skills/commands under `.opencode/` and
+  `~/.config/opencode/`, rules via `AGENTS.md`, MCP merge of the `mcp` key in
+  `opencode.json` (OpenCode's local/remote entry shape).
+
 ## 0.1.0
 
 First public release.

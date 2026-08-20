@@ -12,23 +12,73 @@ use crate::store::Store;
 
 use super::writer::{self, Manifest, TrackedContent, WriteAction};
 
-/// The directory `mcp_target()` paths are trusted to live under — the same
-/// boundary `Agent::root()` uses for items (`project_root` for
-/// `Scope::Project`, the home directory for `Scope::Global`). Every MCP write
-/// is validated against this via `path_guard::ensure_within` before it
-/// happens, exactly like every other write in the crate.
-fn scope_base(scope: Scope, project_root: &Path) -> Result<PathBuf> {
+/// The directory `mcp_target()` paths are trusted to live under. Project scope
+/// uses `project_root`. Global scope defaults to the home directory (Claude's
+/// `~/.claude.json`, Cursor's `~/.cursor/mcp.json`, …). When an agent's global
+/// MCP path sits outside `$HOME` — OpenCode under `$XDG_CONFIG_HOME` — the
+/// bound is the agent's global `root()` (or that root's parent if the MCP
+/// file is a sibling), never cwd.
+fn scope_base(agent: &dyn Agent, scope: Scope, project_root: &Path) -> Result<PathBuf> {
     match scope {
         Scope::Project => Ok(project_root.to_path_buf()),
-        // Never fall back to `.`: writing MCP config into the current working
-        // directory is how a missing `$HOME` used to plant `mcp.json` in
-        // whatever folder the user happened to be standing in.
-        Scope::Global => crate::platform::home_dir().ok_or_else(|| {
-            Error::Config(
-                "no home directory on this machine — cannot write global MCP config".to_string(),
-            )
-        }),
+        Scope::Global => {
+            let home = crate::platform::home_dir();
+            let Some(target) = agent.mcp_target(Scope::Global, project_root) else {
+                return home.ok_or_else(|| {
+                    Error::Config(
+                        "no home directory on this machine — cannot write global MCP config"
+                            .to_string(),
+                    )
+                });
+            };
+            if let Some(ref home) = home
+                && path_is_under(home, &target.path)
+            {
+                return Ok(home.clone());
+            }
+            // Target escapes $HOME, or $HOME is unset (OpenCode under
+            // XDG_CONFIG_HOME alone). Bound to the agent-declared global root.
+            if let Some(root) = agent.root(Scope::Global, project_root) {
+                if path_is_under(&root, &target.path) {
+                    return Ok(root);
+                }
+                if let Some(parent) = root.parent()
+                    && path_is_under(parent, &target.path)
+                {
+                    return Ok(parent.to_path_buf());
+                }
+            }
+            target.path.parent().map(Path::to_path_buf).ok_or_else(|| {
+                Error::Config(format!(
+                    "cannot derive a write boundary for global MCP path {}",
+                    target.path.display()
+                ))
+            })
+        }
     }
+}
+
+/// Lexical "is `candidate` equal to or under `root`?" without creating
+/// directories or touching the filesystem — used only to pick a `scope_base`,
+/// not as a substitute for `path_guard::ensure_within` at write time.
+fn path_is_under(root: &Path, candidate: &Path) -> bool {
+    let root = normalize_lexical(root);
+    let candidate = normalize_lexical(candidate);
+    candidate.starts_with(&root)
+}
+
+fn normalize_lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone)]
@@ -273,7 +323,7 @@ pub fn apply_mcp(
     // disk: recording an entry that never landed would license deleting
     // someone else's. The reverse (a successful write whose manifest save
     // failed) merely leaves the entry untracked, which is the safe side.
-    let base = scope_base(scope, project_root)?;
+    let base = scope_base(agent, scope, project_root)?;
     write_managed_servers(&target, &object, &base)?;
     let saved = manifest.save(&manifest_path);
     match build_error {
@@ -306,7 +356,9 @@ fn entry_for(
             agent.display_name(),
             match format {
                 McpConfigFormat::Json { .. } => "a `command` (stdio)",
-                McpConfigFormat::TomlTables { .. } => "a `command` (stdio) or a `url` (http)",
+                McpConfigFormat::OpenCodeJson { .. } | McpConfigFormat::TomlTables { .. } => {
+                    "a `command` (stdio) or a `url` (http)"
+                }
             }
         ),
     })
@@ -385,7 +437,9 @@ fn ensure_gitignored_if_holds_secrets(
 fn manifest_key(entry: &serde_json::Value) -> String {
     let mut redacted = entry.clone();
     if let Some(obj) = redacted.as_object_mut() {
+        // Claude/Cursor/Copilot/Windsurf use `env`; OpenCode uses `environment`.
         obj.remove("env");
+        obj.remove("environment");
     }
     serde_json::to_string(&redacted).unwrap_or_default()
 }
@@ -401,6 +455,24 @@ fn materialize_entry(
             }
             let resolved_env = resolve_env(server)?;
             Ok(Some(to_stdio_entry(server, &resolved_env)))
+        }
+        McpConfigFormat::OpenCodeJson { .. } => {
+            if server.has_http() {
+                match resolve_bearer_env_var_name(server) {
+                    Ok(bearer) => {
+                        return Ok(Some(to_opencode_remote_entry(server, bearer.as_deref())));
+                    }
+                    // Dual-transport: fall back to local stdio if the HTTP
+                    // bearer isn't set yet (same idea as Codex TomlTables).
+                    Err(Error::SecretNotSet { .. }) if server.has_stdio() => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            if server.has_stdio() {
+                let resolved_env = resolve_env(server)?;
+                return Ok(Some(to_opencode_local_entry(server, &resolved_env)));
+            }
+            Ok(None)
         }
         McpConfigFormat::TomlTables { .. } => {
             if server.has_http() {
@@ -451,6 +523,47 @@ fn to_http_entry(server: &McpServer, bearer_env_var: Option<&str>) -> serde_json
     obj.into()
 }
 
+/// OpenCode local MCP: `command` is `[bin, ...args]`, env is `environment`.
+fn to_opencode_local_entry(
+    server: &McpServer,
+    resolved_env: &BTreeMap<String, String>,
+) -> serde_json::Value {
+    let mut command = vec![serde_json::Value::String(server.command.clone())];
+    command.extend(server.args.iter().cloned().map(serde_json::Value::String));
+    let mut obj = serde_json::Map::new();
+    obj.insert("type".to_string(), "local".into());
+    obj.insert("command".to_string(), command.into());
+    if !resolved_env.is_empty() {
+        let env: serde_json::Map<String, serde_json::Value> = resolved_env
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone().into()))
+            .collect();
+        obj.insert("environment".to_string(), env.into());
+    }
+    obj.into()
+}
+
+/// OpenCode remote MCP. When shaic knows a bearer env-var name, write it as
+/// `Authorization: Bearer {env:NAME}` (OpenCode's documented env interpolation)
+/// and disable auto-OAuth so the API-key path is used.
+fn to_opencode_remote_entry(server: &McpServer, bearer_env_var: Option<&str>) -> serde_json::Value {
+    let mut obj = serde_json::Map::new();
+    obj.insert("type".to_string(), "remote".into());
+    if let Some(url) = &server.url {
+        obj.insert("url".to_string(), url.clone().into());
+    }
+    if let Some(name) = bearer_env_var {
+        obj.insert("oauth".to_string(), false.into());
+        let mut headers = serde_json::Map::new();
+        headers.insert(
+            "Authorization".to_string(),
+            format!("Bearer {{env:{name}}}").into(),
+        );
+        obj.insert("headers".to_string(), headers.into());
+    }
+    obj.into()
+}
+
 fn server_from_on_disk_entry(
     name: &str,
     obj: &serde_json::Map<String, serde_json::Value>,
@@ -458,11 +571,22 @@ fn server_from_on_disk_entry(
     scope: Scope,
     pulled_by: AgentId,
 ) -> Result<McpServer> {
-    let disk_command = obj
-        .get("command")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    // Claude/Cursor: `"command": "npx", "args": [...]`. OpenCode:
+    // `"command": ["npx", "-y", "..."]`.
+    let (disk_command, args_from_command_array) = match obj.get("command") {
+        Some(serde_json::Value::String(s)) => (s.clone(), None),
+        Some(serde_json::Value::Array(parts)) => {
+            let parts: Vec<String> = parts
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            match parts.split_first() {
+                Some((cmd, rest)) => (cmd.clone(), Some(rest.to_vec())),
+                None => (String::new(), None),
+            }
+        }
+        _ => (String::new(), None),
+    };
     let disk_has_stdio = !disk_command.is_empty();
     let disk_url = obj
         .get("url")
@@ -471,22 +595,29 @@ fn server_from_on_disk_entry(
         .filter(|u| !u.is_empty());
     let disk_has_http = disk_url.is_some();
 
-    // Merge transports: an agent that only writes HTTP (Codex) must not wipe
-    // stdio fields the store already holds for Cursor/Claude, and vice versa.
+    // Merge transports: an agent that only writes HTTP (Codex/OpenCode) must
+    // not wipe stdio fields the store already holds for Cursor/Claude, and
+    // vice versa.
     let (command, args, env) = if disk_has_stdio {
-        let args: Vec<String> = obj
-            .get("args")
-            .and_then(|v| v.as_array())
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(|v| v.as_str())
-                    .map(String::from)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let args: Vec<String> = args_from_command_array.unwrap_or_else(|| {
+            obj.get("args")
+                .and_then(|v| v.as_array())
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .map(String::from)
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
         let mut env = BTreeMap::new();
-        if let Some(env_obj) = obj.get("env").and_then(|v| v.as_object()) {
+        // OpenCode uses `environment`; everyone else uses `env`.
+        let env_obj = obj
+            .get("environment")
+            .or_else(|| obj.get("env"))
+            .and_then(|v| v.as_object());
+        if let Some(env_obj) = env_obj {
             for (key, value) in env_obj {
                 if let Some(on_disk) = value.as_str() {
                     let previous = existing.and_then(|s| s.env.get(key));
@@ -502,15 +633,37 @@ fn server_from_on_disk_entry(
     };
 
     let (url, bearer_token_env_var) = if disk_has_http {
-        let bearer = obj
+        let bearer_name = obj
             .get("bearer_token_env_var")
             .and_then(|v| v.as_str())
-            .map(|on_disk| {
-                reconciled_bearer_env_var(
-                    existing.and_then(|s| s.bearer_token_env_var.as_ref()),
-                    on_disk,
-                )
+            .map(String::from)
+            .or_else(|| bearer_env_var_from_opencode_headers(obj));
+        // OpenCode remote entries with a literal `Authorization: Bearer …`
+        // (not `{env:NAME}`) must not be pulled: the store cannot hold the
+        // token, and writing the entry back without headers would drop auth.
+        if bearer_name.is_none()
+            && let Some(auth) = obj
+                .get("headers")
+                .and_then(|h| h.as_object())
+                .and_then(|h| h.get("Authorization"))
+                .and_then(|v| v.as_str())
+            && auth
+                .strip_prefix("Bearer ")
+                .is_some_and(|rest| !rest.trim().is_empty())
+        {
+            return Err(Error::McpNoTransport {
+                server: name.to_string(),
+                message: "literal Authorization bearer is not imported — use \
+                     `Authorization: Bearer {env:NAME}` and `shaic mcp secret set NAME`"
+                    .to_string(),
             });
+        }
+        let bearer = bearer_name.map(|on_disk| {
+            reconciled_bearer_env_var(
+                existing.and_then(|s| s.bearer_token_env_var.as_ref()),
+                &on_disk,
+            )
+        });
         (disk_url, bearer)
     } else if let Some(ex) = existing {
         (ex.url.clone(), ex.bearer_token_env_var.clone())
@@ -532,8 +685,8 @@ fn server_from_on_disk_entry(
     }
 
     // New pulls: stdio servers fan out to every agent (bidirectional sync).
-    // HTTP-only servers are Codex-shaped — default to the agent that pulled
-    // them so they are not pushed into JSON agents that cannot use them.
+    // HTTP-only servers are Codex/OpenCode-shaped — default to the agent that
+    // pulled them so they are not pushed into JSON agents that cannot use them.
     let agents = existing.map(|s| s.agents.clone()).unwrap_or_else(|| {
         if disk_has_http && !disk_has_stdio {
             vec![pulled_by]
@@ -582,9 +735,27 @@ fn reconciled_bearer_env_var(previous: Option<&EnvValue>, on_disk: &str) -> EnvV
     }
 }
 
+/// OpenCode remote entries encode the bearer as
+/// `headers.Authorization = "Bearer {env:NAME}"`.
+fn bearer_env_var_from_opencode_headers(
+    obj: &serde_json::Map<String, serde_json::Value>,
+) -> Option<String> {
+    let auth = obj
+        .get("headers")?
+        .as_object()?
+        .get("Authorization")?
+        .as_str()?;
+    let token = auth.strip_prefix("Bearer ")?.trim();
+    token
+        .strip_prefix("{env:")
+        .and_then(|s| s.strip_suffix('}'))
+        .filter(|name| !name.is_empty())
+        .map(String::from)
+}
+
 fn read_managed_servers(target: &McpTarget) -> Result<BTreeMap<String, serde_json::Value>> {
     match &target.format {
-        McpConfigFormat::Json { servers_key } => {
+        McpConfigFormat::Json { servers_key } | McpConfigFormat::OpenCodeJson { servers_key } => {
             read_managed_json_object(&target.path, servers_key)
         }
         McpConfigFormat::TomlTables { table_prefix } => {
@@ -599,7 +770,7 @@ fn write_managed_servers(
     base: &Path,
 ) -> Result<()> {
     match &target.format {
-        McpConfigFormat::Json { servers_key } => {
+        McpConfigFormat::Json { servers_key } | McpConfigFormat::OpenCodeJson { servers_key } => {
             write_managed_json_object(&target.path, servers_key, servers, base)
         }
         McpConfigFormat::TomlTables { table_prefix } => {
@@ -1012,6 +1183,189 @@ bearer_token_env_var = "GITHUB_PAT"
             McpConfigFormat::TomlTables {
                 table_prefix: "mcp_servers"
             }
+        ));
+    }
+
+    #[test]
+    fn opencode_local_entry_uses_command_array_and_environment() {
+        let server = McpServer::new(
+            "playwright".to_string(),
+            "npx".to_string(),
+            vec!["-y".to_string(), "@playwright/mcp@latest".to_string()],
+            BTreeMap::from([("FOO".to_string(), EnvValue::Literal("bar".to_string()))]),
+            vec![Scope::Project],
+        )
+        .unwrap();
+        let resolved = BTreeMap::from([("FOO".to_string(), "bar".to_string())]);
+        let entry = to_opencode_local_entry(&server, &resolved);
+        assert_eq!(entry["type"], "local");
+        assert_eq!(
+            entry["command"],
+            serde_json::json!(["npx", "-y", "@playwright/mcp@latest"])
+        );
+        assert_eq!(entry["environment"]["FOO"], "bar");
+        assert!(!entry.as_object().unwrap().contains_key("env"));
+        assert!(!entry.as_object().unwrap().contains_key("args"));
+    }
+
+    #[test]
+    fn opencode_remote_entry_encodes_bearer_as_env_header() {
+        let server = McpServer {
+            name: "remote".to_string(),
+            command: String::new(),
+            args: vec![],
+            env: BTreeMap::new(),
+            url: Some("https://mcp.example.com/".to_string()),
+            bearer_token_env_var: Some(EnvValue::Secret {
+                secret: "MCP_BEARER".to_string(),
+            }),
+            scope: vec![Scope::Project],
+            agents: vec![crate::model::AgentId::OpenCode],
+        };
+        let entry = to_opencode_remote_entry(&server, Some("MCP_BEARER"));
+        assert_eq!(entry["type"], "remote");
+        assert_eq!(entry["url"], "https://mcp.example.com/");
+        assert_eq!(entry["oauth"], false);
+        assert_eq!(entry["headers"]["Authorization"], "Bearer {env:MCP_BEARER}");
+    }
+
+    #[test]
+    fn opencode_on_disk_local_round_trips_through_reconcile() {
+        let obj = serde_json::json!({
+            "type": "local",
+            "command": ["npx", "-y", "shared-tool"],
+            "environment": { "LOG": "debug" }
+        });
+        let obj = obj.as_object().unwrap();
+        let server = server_from_on_disk_entry(
+            "shared-tool",
+            obj,
+            None,
+            Scope::Project,
+            crate::model::AgentId::OpenCode,
+        )
+        .unwrap();
+        assert_eq!(server.command, "npx");
+        assert_eq!(server.args, vec!["-y", "shared-tool"]);
+        assert_eq!(
+            server.env.get("LOG"),
+            Some(&EnvValue::Literal("debug".to_string()))
+        );
+    }
+
+    #[test]
+    fn opencode_on_disk_remote_bearer_header_round_trips() {
+        let obj = serde_json::json!({
+            "type": "remote",
+            "url": "https://mcp.example.com/",
+            "oauth": false,
+            "headers": { "Authorization": "Bearer {env:MCP_BEARER}" }
+        });
+        let obj = obj.as_object().unwrap();
+        let server = server_from_on_disk_entry(
+            "remote",
+            obj,
+            None,
+            Scope::Project,
+            crate::model::AgentId::OpenCode,
+        )
+        .unwrap();
+        assert!(server.command.is_empty());
+        assert_eq!(server.url.as_deref(), Some("https://mcp.example.com/"));
+        assert_eq!(
+            server.bearer_token_env_var,
+            Some(EnvValue::Secret {
+                secret: "MCP_BEARER".to_string()
+            })
+        );
+        assert_eq!(server.agents, vec![crate::model::AgentId::OpenCode]);
+    }
+
+    #[test]
+    fn opencode_literal_authorization_bearer_is_rejected_on_import() {
+        let obj = serde_json::json!({
+            "type": "remote",
+            "url": "https://mcp.example.com/",
+            "headers": { "Authorization": "Bearer sk-literal-token" }
+        });
+        let obj = obj.as_object().unwrap();
+        let err = server_from_on_disk_entry(
+            "remote",
+            obj,
+            None,
+            Scope::Project,
+            crate::model::AgentId::OpenCode,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, Error::McpNoTransport { .. }),
+            "expected McpNoTransport, got {err}"
+        );
+        assert!(
+            err.to_string().contains("literal Authorization"),
+            "unexpected message: {err}"
+        );
+    }
+
+    #[test]
+    fn manifest_key_redacts_opencode_environment() {
+        let entry = serde_json::json!({
+            "type": "local",
+            "command": ["npx"],
+            "environment": { "API_TOKEN": "super-secret" }
+        });
+        let key = manifest_key(&entry);
+        assert!(
+            !key.contains("super-secret"),
+            "resolved environment must not enter the manifest digest: {key}"
+        );
+        assert!(key.contains("npx"));
+    }
+
+    #[test]
+    fn opencode_global_mcp_scope_base_follows_xdg_outside_home() {
+        use crate::adapters::opencode::OpenCode;
+        let home = tempfile::tempdir().unwrap();
+        let xdg = tempfile::tempdir().unwrap();
+        assert_ne!(
+            home.path().canonicalize().unwrap(),
+            xdg.path().canonicalize().unwrap(),
+            "test requires XDG outside HOME"
+        );
+        unsafe {
+            std::env::set_var("HOME", home.path());
+            std::env::set_var("XDG_CONFIG_HOME", xdg.path());
+        }
+        let agent = OpenCode;
+        let project = tempfile::tempdir().unwrap();
+        let base = scope_base(&agent, Scope::Global, project.path()).unwrap();
+        let target = agent
+            .mcp_target(Scope::Global, project.path())
+            .expect("opencode global mcp");
+        assert!(
+            path_is_under(&base, &target.path),
+            "scope_base {} must contain MCP path {}",
+            base.display(),
+            target.path.display()
+        );
+        assert!(
+            !path_is_under(home.path(), &target.path),
+            "sanity: target really is outside HOME"
+        );
+    }
+
+    #[test]
+    fn opencode_adapter_has_mcp_target() {
+        use crate::adapters::opencode::OpenCode;
+        let agent = OpenCode;
+        let project = tempfile::tempdir().unwrap();
+        let target = agent
+            .mcp_target(Scope::Project, project.path())
+            .expect("opencode project mcp");
+        assert!(target.path.ends_with("opencode.json"));
+        assert!(matches!(
+            target.format,
+            McpConfigFormat::OpenCodeJson { servers_key: "mcp" }
         ));
     }
 }

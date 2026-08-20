@@ -2298,7 +2298,7 @@ dependencies = [
 
 [[package]]
 name = "shaic"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -2316,7 +2316,7 @@ dependencies = [
 
 [[package]]
 name = "shaic-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assert_fs",
  "clap",
@@ -2336,7 +2336,7 @@ dependencies = [
 
 [[package]]
 name = "shaic-tui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "crossterm",
  "ratatui",
