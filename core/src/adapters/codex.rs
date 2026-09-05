@@ -7,12 +7,13 @@ use super::common::{
     reconcile_canonical_files, reconcile_heading_sections, render_as_directory,
     render_as_single_file,
 };
+use super::subagent;
 use super::{Agent, DiscoveredContent, McpConfigFormat, McpTarget, RenderedFile};
 
 pub struct Codex;
 
 const SCOPES: &[Scope] = &[Scope::Global, Scope::Project];
-const KINDS: &[ItemKind] = &[ItemKind::Skill, ItemKind::Rule];
+const KINDS: &[ItemKind] = &[ItemKind::Skill, ItemKind::Rule, ItemKind::Subagent];
 
 /// Codex's skill directory, relative to `root()` — asymmetric between scopes
 /// because `root()` itself already points at `~/.codex` for Global (so
@@ -81,6 +82,7 @@ impl Agent for Codex {
             // Not in `supported_kinds()`, never actually dispatched here —
             // only present because `ItemKind` match arms must be exhaustive.
             ItemKind::Command => Vec::new(),
+            ItemKind::Subagent => subagent::render_codex(items, scope),
         }
     }
 
@@ -99,6 +101,7 @@ impl Agent for Codex {
             ItemKind::Skill => discover_skill_files(&root.join(skills_dir(scope)), scope),
             ItemKind::Rule => discover_single_file(&root.join("AGENTS.md"), scope),
             ItemKind::Command => Vec::new(),
+            ItemKind::Subagent => subagent::discover_codex(self, scope, project_root),
         }
     }
 
@@ -107,6 +110,7 @@ impl Agent for Codex {
             ItemKind::Skill => reconcile_canonical_files(self, kind, scope, project_root),
             ItemKind::Rule => reconcile_heading_sections(self, kind, scope, project_root, "##"),
             ItemKind::Command => Vec::new(),
+            ItemKind::Subagent => subagent::reconcile_codex(self, scope, project_root),
         }
     }
 

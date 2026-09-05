@@ -8,7 +8,7 @@ use crate::app::App;
 use crate::screens;
 use crate::theme;
 
-/// Canonical skills/rules/commands, one flat list (kind shown per row).
+/// Canonical skills/rules/commands/subagents, one flat list (kind shown per row).
 /// `a` adds, `e` edits the selected item, `d` removes it — add/edit both
 /// suspend the TUI and hand off to `$EDITOR`.
 pub fn draw(frame: &mut Frame, app: &App) {

@@ -8,6 +8,7 @@ use super::common::{
     reconcile_described_files, reconcile_heading_sections, render_as_directory,
     render_as_single_file, with_description,
 };
+use super::subagent;
 use super::{Agent, DiscoveredContent, McpConfigFormat, McpTarget, RenderedFile};
 
 pub struct ClaudeCode;
@@ -69,6 +70,7 @@ impl Agent for ClaudeCode {
                     heading_section(item, "##")
                 })
             }
+            ItemKind::Subagent => subagent::render_claude(items, scope),
         }
     }
 
@@ -88,6 +90,7 @@ impl Agent for ClaudeCode {
             ItemKind::Skill => discover_skill_files(&root.join("skills"), scope),
             ItemKind::Command => discover_directory(&root.join("commands"), scope, "md"),
             ItemKind::Rule => discover_single_file(&root.join("CLAUDE.md"), scope),
+            ItemKind::Subagent => subagent::discover_claude(self, scope, project_root),
         }
     }
 
@@ -98,6 +101,7 @@ impl Agent for ClaudeCode {
                 reconcile_described_files(self, kind, scope, project_root, file_stem_name)
             }
             ItemKind::Rule => reconcile_heading_sections(self, kind, scope, project_root, "##"),
+            ItemKind::Subagent => subagent::reconcile_claude(self, scope, project_root),
         }
     }
 

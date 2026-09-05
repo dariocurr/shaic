@@ -12,7 +12,7 @@ use super::{Agent, DiscoveredContent, McpConfigFormat, McpTarget, RenderedFile};
 pub struct Windsurf;
 
 const SCOPES: &[Scope] = &[Scope::Project];
-const KINDS: &[ItemKind] = &ItemKind::ALL;
+const KINDS: &[ItemKind] = &[ItemKind::Skill, ItemKind::Rule, ItemKind::Command];
 
 /// Windsurf's two rule shapes: `.windsurf/rules/<name>.md` (current) and the
 /// legacy single `.windsurfrules` file. Unlike Cursor's `.mdc`, each per-item

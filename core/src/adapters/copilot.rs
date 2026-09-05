@@ -15,7 +15,7 @@ use super::{Agent, DiscoveredContent, McpConfigFormat, McpTarget, RenderedFile};
 pub struct Copilot;
 
 const SCOPES: &[Scope] = &[Scope::Project];
-const KINDS: &[ItemKind] = &ItemKind::ALL;
+const KINDS: &[ItemKind] = &[ItemKind::Skill, ItemKind::Rule, ItemKind::Command];
 
 impl Agent for Copilot {
     fn id(&self) -> AgentId {
@@ -68,6 +68,7 @@ impl Agent for Copilot {
                 |item| format!("{}.prompt.md", item.name()),
                 with_description,
             ),
+            ItemKind::Subagent => Vec::new(),
         }
     }
 
@@ -84,6 +85,7 @@ impl Agent for Copilot {
             ItemKind::Rule => discover_single_file(&root.join("copilot-instructions.md"), scope),
             ItemKind::Skill => discover_directory(&root.join("instructions"), scope, "md"),
             ItemKind::Command => discover_directory(&root.join("prompts"), scope, "md"),
+            ItemKind::Subagent => Vec::new(),
         }
     }
 
@@ -128,6 +130,7 @@ impl Agent for Copilot {
                     strip_file_suffix(path, ".prompt.md")
                 })
             }
+            ItemKind::Subagent => Vec::new(),
         }
     }
 
@@ -203,6 +206,8 @@ mod tests {
                 tags: vec![],
                 scope: vec![Scope::Project],
                 agents: AgentId::ALL.to_vec(),
+                tools: vec![],
+                native: std::collections::BTreeMap::new(),
             },
             "Prefer function components.".to_string(),
         )

@@ -44,7 +44,7 @@ fn item_bidirectional_sync_is_idempotent_and_avoids_duplicate_writes() {
     // out (re-normalizing formatting).
     for &kind in claude.supported_kinds() {
         let report =
-            reconcile_items(&claude, &store, kind, Scope::Project, project.path()).unwrap();
+            reconcile_items(&claude, &store, kind, Scope::Project, project.path(), false).unwrap();
         if kind == ItemKind::Skill {
             assert_eq!(report.pulled, vec!["weather-lookup".to_string()]);
         }
@@ -55,7 +55,7 @@ fn item_bidirectional_sync_is_idempotent_and_avoids_duplicate_writes() {
     // Reconcile + apply for Cursor: the store's Skill-kind item renders into
     // `rules/weather-lookup.mdc`.
     for &kind in cursor.supported_kinds() {
-        reconcile_items(&cursor, &store, kind, Scope::Project, project.path()).unwrap();
+        reconcile_items(&cursor, &store, kind, Scope::Project, project.path(), false).unwrap();
     }
     let cursor_plan = plan_materialize(&cursor, &store, Scope::Project, project.path()).unwrap();
     apply(&cursor, &cursor_plan, Scope::Project, project.path()).unwrap();
@@ -64,7 +64,7 @@ fn item_bidirectional_sync_is_idempotent_and_avoids_duplicate_writes() {
     // its own just-written Skill-kind output as new Rule content.
     for &kind in cursor.supported_kinds() {
         let report =
-            reconcile_items(&cursor, &store, kind, Scope::Project, project.path()).unwrap();
+            reconcile_items(&cursor, &store, kind, Scope::Project, project.path(), false).unwrap();
         assert!(
             report.pulled.is_empty(),
             "kind {kind:?} should have nothing left to pull on a second pass: {:?}",

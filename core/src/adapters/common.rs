@@ -368,6 +368,8 @@ pub fn reconciled_frontmatter(name: impl Into<String>, scope: Scope) -> Frontmat
         // agent out of it, with no signal to the user that happened. Restrict
         // explicitly (`shaic item edit`) once it's in the store.
         agents: AgentId::ALL.to_vec(),
+        tools: vec![],
+        native: std::collections::BTreeMap::new(),
     }
 }
 
@@ -792,6 +794,8 @@ mod tests {
                 tags: vec![],
                 scope: vec![Scope::Project],
                 agents: AgentId::ALL.to_vec(),
+                tools: vec![],
+                native: std::collections::BTreeMap::new(),
             },
             body.to_string(),
         )

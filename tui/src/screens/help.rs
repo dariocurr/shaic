@@ -13,7 +13,7 @@ use crate::theme;
 /// to bring existing content in.
 const BODY: &[&str] = &[
     "shaic tracks two separate things:",
-    "  the store    — canonical skills/rules/commands/MCP servers you've",
+    "  the store    — canonical skills/rules/commands/subagents/MCP servers you've",
     "                 added; this is what gets synced out to every agent.",
     "  agent files  — whatever's already on disk for an agent (may exist",
     "                 before shaic ever touched it). 'agents discover'",
@@ -22,7 +22,7 @@ const BODY: &[&str] = &[
     "Dashboard",
     "  one row per agent, showing its worst status across every scope and",
     "  content/MCP axis it supports. ↑/↓ select   Enter=agent detail",
-    "  s=browse skills/rules/commands   p=push store   u=pull store",
+    "  s=browse skills/rules/commands/subagents   p=push store   u=pull store",
     "  p/u/d/a ask y/N before they write anything",
     "  i=setup wizard   r=refresh   q=quit",
     "",

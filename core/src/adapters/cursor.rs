@@ -9,12 +9,13 @@ use super::common::{
     parse_frontmatter_value, reconcile_dual_form, reconciled_frontmatter, render_dual_form,
     split_frontmatter_block, split_globs,
 };
+use super::subagent;
 use super::{Agent, DiscoveredContent, McpConfigFormat, McpTarget, RenderedFile};
 
 pub struct Cursor;
 
 const SCOPES: &[Scope] = &[Scope::Project];
-const KINDS: &[ItemKind] = &[ItemKind::Skill, ItemKind::Rule];
+const KINDS: &[ItemKind] = &[ItemKind::Skill, ItemKind::Rule, ItemKind::Subagent];
 
 /// Cursor's two shapes: `.cursor/rules/<name>.mdc` (current) and the legacy
 /// single `.cursorrules` file. `discover_dual_form` picks exactly one of them
@@ -51,11 +52,14 @@ impl Agent for Cursor {
 
     fn render(
         &self,
-        _kind: ItemKind,
+        kind: ItemKind,
         items: &[Item],
         scope: Scope,
         existing_form: Option<ContentForm>,
     ) -> Vec<RenderedFile> {
+        if kind == ItemKind::Subagent {
+            return subagent::render_cursor(items, scope);
+        }
         render_dual_form(
             &dual_form(),
             items,
@@ -70,10 +74,13 @@ impl Agent for Cursor {
 
     fn discover_existing(
         &self,
-        _kind: ItemKind,
+        kind: ItemKind,
         scope: Scope,
         project_root: &Path,
     ) -> Vec<DiscoveredContent> {
+        if kind == ItemKind::Subagent {
+            return subagent::discover_cursor(self, scope, project_root);
+        }
         let Some(root) = self.root(scope, project_root) else {
             return Vec::new();
         };
@@ -81,6 +88,9 @@ impl Agent for Cursor {
     }
 
     fn reconcile_existing(&self, kind: ItemKind, scope: Scope, project_root: &Path) -> Vec<Item> {
+        if kind == ItemKind::Subagent {
+            return subagent::reconcile_cursor(self, scope, project_root);
+        }
         // Rule-only, because Cursor has no separate "skill" concept: both
         // kinds render to identical `.mdc` rules. See `reconcile_dual_form`.
         reconcile_dual_form(
@@ -173,6 +183,8 @@ mod tests {
                 tags: vec![],
                 scope: vec![Scope::Project],
                 agents: AgentId::ALL.to_vec(),
+                tools: vec![],
+                native: std::collections::BTreeMap::new(),
             },
             body.to_string(),
         )

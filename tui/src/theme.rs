@@ -71,12 +71,13 @@ pub fn message_color(message: &str) -> Color {
     }
 }
 
-/// Distinct color per item kind, so a mixed skills/rules/commands list scans
-/// at a glance instead of requiring the `[Kind]` prefix to be read.
+/// Distinct color per item kind, so a mixed skills/rules/commands/subagents
+/// list scans at a glance instead of requiring the `[Kind]` prefix to be read.
 pub fn kind_color(kind: ItemKind) -> Color {
     match kind {
         ItemKind::Skill => INFO,
         ItemKind::Rule => Color::Rgb(45, 212, 191),
         ItemKind::Command => Color::Rgb(232, 121, 249),
+        ItemKind::Subagent => Color::Rgb(251, 146, 60),
     }
 }

@@ -161,12 +161,12 @@ dashboard.
 
 | Agent | Convention | Scopes |
 | --- | --- | --- |
-| Claude Code | `.claude/` (`CLAUDE.md`, `skills/*/SKILL.md`, `commands/*.md`) | global + project |
-| Cursor | `.cursor/rules/*.mdc` (or legacy `.cursorrules`) | project |
+| Claude Code | `.claude/` (`CLAUDE.md`, `skills/*/SKILL.md`, `commands/*.md`, `agents/*.md`) | global + project |
+| Cursor | `.cursor/rules/*.mdc`; `.cursor/agents/*.md` when no Claude markdown covers that id | project |
 | Windsurf | `.windsurf/rules/*.md` + `workflows/*.md` (or legacy `.windsurfrules`) | project |
 | GitHub Copilot | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, `.github/prompts/*.prompt.md` | project |
-| OpenAI Codex CLI | `AGENTS.md`; skills at `~/.codex/skills/` (global) and `.codex/skills/` (project) | project (+ best-effort `~/.codex/`) |
-| OpenCode | `AGENTS.md`; skills/commands at `~/.config/opencode/` (global) and `.opencode/` (project) | global + project |
+| OpenAI Codex CLI | `AGENTS.md`; skills at `~/.codex/skills/` / `.codex/skills/`; agents at `~/.codex/agents/` / `.codex/agents/*.toml` | project (+ best-effort `~/.codex/`) |
+| OpenCode | `AGENTS.md`; skills/commands/agents at `~/.config/opencode/` (global) and `.opencode/` (project); discovers both `agent/` and `agents/` | global + project |
 | Google Gemini CLI | `GEMINI.md` | global + project |
 | Cline | `.clinerules/` (or legacy single `.clinerules` file) | project |
 | Google Antigravity | *experimental, read-only* — `.antigravity/rules/*.md` is discovered but never written; the write convention is unconfirmed | project |
@@ -195,11 +195,11 @@ Gemini CLI, Cline, and Antigravity are not write-supported for MCP yet.
 | `shaic init [--remote <url>] [--force]` | Create the canonical store. `--force` is required to replace an origin that is already set. |
 | `shaic push` / `shaic pull` | Sync the store with its remote (fetch + fast-forward-only merge). `pull` needs a clean working tree. Both scan for obvious secrets; pass `--i-know-what-im-doing` to override. Add `--json` for machine-readable output. |
 | `shaic status [--json]` | Store + per-agent drift at a glance |
-| `shaic item add\|edit\|rm\|list --kind <skill\|rule\|command>` | Manage canonical items (skill is the default) |
+| `shaic item add\|edit\|rm\|list --kind <skill\|rule\|command\|subagent>` | Manage canonical items (skill is the default) |
 | `shaic mcp add\|edit\|rm\|list` | Manage canonical MCP server definitions |
 | `shaic mcp secret set\|rm\|list` | This machine's local secret values for MCP env vars |
 | `shaic sync [--agent <id>]… [--global] [--project] [--all] [--dry-run] [--yes]` | Write the store out to agent config. Non-tty runs need `--yes`. |
-| `shaic import [--agent <id>]… [--global] [--project] [--all] [--yes]` | Pull agent on-disk files into the store. Does not write agent files. |
+| `shaic import [--agent <id>]… [--global] [--project] [--all] [--yes] [--force]` | Pull agent on-disk files into the store. Does not write agent files. `--force` overwrites an existing subagent of the same id. |
 | `shaic project add\|list\|rm` | Opt a directory into project-scoped writes |
 | `shaic agents list\|discover` | Supported agents / find existing hand-written configs |
 | `shaic doctor [--json]` | Environment and store health checks |
@@ -293,6 +293,29 @@ one real agent config file it's materialized into.
 ---
 
 ## How sync actually works
+
+## Subagents (custom agents)
+
+Share **persona + tools** across Claude Code, OpenCode, and Cursor. Provider-only
+fields (hooks, isolation, OpenCode permission globs, …) round-trip under
+`native.<agent-id>` and are emitted only for that agent.
+
+- Store path: `subagents/<name>.md`
+- Tools use Claude vocabulary as interchange (`Read`, `Write`, `Edit`, `Bash`, …)
+- OpenCode maps Write/Edit → edit permission, Bash → bash, WebFetch → webfetch
+- Cursor writes `.cursor/agents/` only when Claude markdown does **not** already
+  cover that id (item targets Claude Code, or `.claude/agents/<name>.md` exists).
+  Codex TOML alone does **not** skip Cursor. A shaic-tracked Cursor file is
+  deleted when Claude markdown appears so it stops shadowing. A **hand-written**
+  `.cursor/agents/` file is not deleted — sync warns instead.
+- Empty `tools` is treated as locked (Cursor `readonly`, OpenCode deny
+  edit/bash/webfetch, Codex `sandbox_mode = "read-only"`) — never full power.
+- Codex: `.codex/agents/<name>.toml` (and `~/.codex/agents/`); `sandbox_mode`
+  derived from tools; extras under `native.codex`.
+- Import of the same subagent id refuses unless `--force` (last-wins with force)
+- Copilot / Windsurf / Gemini / Cline: no first-class custom-agent files yet
+
+Import of unmapped OpenCode permission globs is still lossy; tools map is best-effort.
 
 `shaic sync` is one-way: store → agents. It never writes the store.
 

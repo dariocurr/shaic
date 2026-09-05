@@ -12,7 +12,7 @@ use shaic_core::model::{AgentId, ItemKind};
 #[command(
     name = "shaic",
     version,
-    about = "Sync AI-agent skills/rules/commands across agents via git"
+    about = "Sync AI-agent skills/rules/commands/subagents across agents via git"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -50,7 +50,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Manage canonical skills/rules/commands.
+    /// Manage canonical skills/rules/commands/subagents.
     #[command(subcommand)]
     Item(ItemAction),
     /// Manage canonical MCP server definitions and their local secrets.
@@ -85,6 +85,9 @@ enum Command {
         all: bool,
         #[arg(long)]
         yes: bool,
+        /// Overwrite an existing subagent of the same id (default: refuse).
+        #[arg(long)]
+        force: bool,
     },
     /// Manage which project directories `shaic` syncs Project-scope content into.
     #[command(subcommand)]
@@ -246,7 +249,8 @@ fn main() {
             project,
             all,
             yes,
-        }) => commands::import::run(agents, global, project, all, yes),
+            force,
+        }) => commands::import::run(agents, global, project, all, yes, force),
         Some(Command::Project(action)) => commands::project::run(action),
         Some(Command::Agents(action)) => commands::agents::run(action),
         Some(Command::Doctor { json }) => commands::doctor::run(json),

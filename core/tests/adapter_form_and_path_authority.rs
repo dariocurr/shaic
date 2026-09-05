@@ -46,6 +46,7 @@ fn active_form_and_path_derived_names_decide_what_gets_reconciled() {
         ItemKind::Rule,
         Scope::Project,
         project.path(),
+        false,
     )
     .unwrap();
     assert_eq!(report.pulled, vec!["no-any".to_string()]);
@@ -87,6 +88,7 @@ fn active_form_and_path_derived_names_decide_what_gets_reconciled() {
         ItemKind::Skill,
         Scope::Project,
         project.path(),
+        false,
     )
     .unwrap();
     assert_eq!(

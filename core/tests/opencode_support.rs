@@ -17,6 +17,8 @@ fn item(kind: ItemKind, name: &str) -> Item {
             tags: vec![],
             scope: vec![Scope::Project, Scope::Global],
             agents: AgentId::ALL.to_vec(),
+            tools: vec![],
+            native: std::collections::BTreeMap::new(),
         },
         "Do the thing.".to_string(),
     )
@@ -100,6 +102,7 @@ fn opencode_materialize_and_reconcile() {
         ItemKind::Skill,
         Scope::Project,
         project.path(),
+        false,
     )
     .unwrap();
     assert_eq!(report.pulled, vec!["hand-written".to_string()]);

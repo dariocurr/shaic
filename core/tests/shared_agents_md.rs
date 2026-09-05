@@ -14,6 +14,8 @@ fn rule(name: &str, agents: Vec<AgentId>) -> Item {
             tags: vec![],
             scope: vec![Scope::Project],
             agents,
+            tools: vec![],
+            native: std::collections::BTreeMap::new(),
         },
         format!("Body for {name}."),
     )

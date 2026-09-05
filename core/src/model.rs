@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -23,10 +24,21 @@ pub enum ItemKind {
     Skill,
     Rule,
     Command,
+    Subagent,
 }
 
 impl ItemKind {
-    pub const ALL: [ItemKind; 3] = [ItemKind::Skill, ItemKind::Rule, ItemKind::Command];
+    pub const ALL: [ItemKind; 4] = [
+        ItemKind::Skill,
+        ItemKind::Rule,
+        ItemKind::Command,
+        ItemKind::Subagent,
+    ];
+
+    /// Agents that have a confirmed on-disk custom-agent convention.
+    /// Default `agents:` targeting for new Subagent items — not `AgentId::ALL`.
+    pub const SUBAGENT_AGENTS: [AgentId; 3] =
+        [AgentId::ClaudeCode, AgentId::OpenCode, AgentId::Cursor];
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, clap::ValueEnum)]
@@ -37,6 +49,9 @@ pub enum AgentId {
     Windsurf,
     Copilot,
     Codex,
+    /// Wire name is `opencode` (not serde's default kebab `open-code`).
+    #[serde(rename = "opencode", alias = "open-code")]
+    #[value(name = "opencode")]
     OpenCode,
     Gemini,
     Antigravity,
@@ -92,6 +107,15 @@ pub struct Frontmatter {
     /// subagents, say) out of agents it doesn't apply to.
     #[serde(default = "default_agents")]
     pub agents: Vec<AgentId>,
+    /// Tool allowlist (Claude vocabulary as interchange). Meaningful for
+    /// `ItemKind::Subagent` only — ignored for Skill/Rule/Command.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<String>,
+    /// Per-provider opaque YAML overlays (hooks, isolation, OpenCode
+    /// permission globs, …). Keys are `AgentId::as_str()`. Meaningful for
+    /// Subagent only — ignored for other kinds.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub native: BTreeMap<String, serde_yaml_ng::Value>,
 }
 
 impl Frontmatter {
@@ -106,6 +130,8 @@ impl Frontmatter {
         "tags",
         "scope",
         "agents",
+        "tools",
+        "native",
     ];
 }
 

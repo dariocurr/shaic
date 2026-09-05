@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::model::{Item, ItemKind};
+use crate::model::{Frontmatter, Item, ItemKind};
 use crate::security::{frontmatter_limits, path_guard, secret_scan};
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -220,7 +220,8 @@ impl Store {
             source,
         })?;
         let (fm_raw, body) = split_frontmatter(&raw)?;
-        let (frontmatter, warnings) = frontmatter_limits::parse_lenient(fm_raw)?;
+        let (mut frontmatter, warnings) = frontmatter_limits::parse_lenient(fm_raw)?;
+        apply_subagent_default_agents(kind, fm_raw, &mut frontmatter);
         Ok((Item::new(kind, frontmatter, body.to_string())?, warnings))
     }
 
@@ -459,15 +460,41 @@ fn guarded_path(store_root: &Path, path: &Path) -> Result<PathBuf> {
 /// should fail loudly here rather than being silently dropped).
 pub fn parse_item(kind: ItemKind, raw: &str) -> Result<Item> {
     let (fm_raw, body) = split_frontmatter(raw)?;
-    let frontmatter = frontmatter_limits::parse_strict(fm_raw)?;
+    let mut frontmatter = frontmatter_limits::parse_strict(fm_raw)?;
+    apply_subagent_default_agents(kind, fm_raw, &mut frontmatter);
     Item::new(kind, frontmatter, body.to_string())
 }
 
+/// Serde defaults `agents` to `AgentId::ALL` when the key is omitted. Subagents
+/// must default to the supporting set instead — only when the author left the
+/// key out (explicit `agents: [...]` including a full list is kept).
+fn apply_subagent_default_agents(kind: ItemKind, fm_raw: &str, frontmatter: &mut Frontmatter) {
+    if kind != ItemKind::Subagent {
+        return;
+    }
+    if frontmatter_has_agents_key(fm_raw) {
+        return;
+    }
+    frontmatter.agents = ItemKind::SUBAGENT_AGENTS.to_vec();
+}
+
+fn frontmatter_has_agents_key(fm_raw: &str) -> bool {
+    fm_raw.lines().any(|line| {
+        let trimmed = line.trim_start();
+        trimmed == "agents:" || trimmed.starts_with("agents:") || trimmed.starts_with("agents :")
+    })
+}
+
 /// Starter template opened in `$EDITOR` for `shaic item add`.
-pub fn item_template(name: &str) -> String {
-    format!(
-        "---\nname: {name}\ndescription: \napplies_to: []\ntags: []\nscope: [global, project]\n# agents: [claude-code]  # omit for every agent; restrict an agent-specific item\n---\n\nDescribe it here.\n"
-    )
+pub fn item_template(kind: ItemKind, name: &str) -> String {
+    match kind {
+        ItemKind::Subagent => format!(
+            "---\nname: {name}\ndescription: \napplies_to: []\ntags: []\nscope: [global, project]\nagents: [claude-code, opencode, cursor]\ntools: []\n---\n\nSystem prompt for this subagent.\n"
+        ),
+        _ => format!(
+            "---\nname: {name}\ndescription: \napplies_to: []\ntags: []\nscope: [global, project]\n# agents: [claude-code]  # omit for every agent; restrict an agent-specific item\n---\n\nDescribe it here.\n"
+        ),
+    }
 }
 
 /// Render an existing item back into the same frontmatter+body text opened in
@@ -522,6 +549,8 @@ mod tests {
                 tags: vec![],
                 scope: vec![crate::model::Scope::Project],
                 agents: crate::model::AgentId::ALL.to_vec(),
+                tools: vec![],
+                native: std::collections::BTreeMap::new(),
             },
             "Body text.".to_string(),
         )
@@ -705,6 +734,18 @@ mod tests {
         assert_eq!(
             crate::store::git::origin_url(&store_path).unwrap(),
             remote_b.path().to_string_lossy().to_string()
+        );
+    }
+    #[test]
+    fn subagent_omitted_agents_defaults_to_supporting_set() {
+        let raw = "---\nname: reviewer\ndescription: x\nscope: [project]\n---\n\nBody.\n";
+        let item = parse_item(ItemKind::Subagent, raw).unwrap();
+        assert_eq!(item.frontmatter.agents, ItemKind::SUBAGENT_AGENTS.to_vec());
+        let raw_explicit = "---\nname: reviewer\ndescription: x\nscope: [project]\nagents: [claude-code]\n---\n\nBody.\n";
+        let item = parse_item(ItemKind::Subagent, raw_explicit).unwrap();
+        assert_eq!(
+            item.frontmatter.agents,
+            vec![crate::model::AgentId::ClaudeCode]
         );
     }
 }

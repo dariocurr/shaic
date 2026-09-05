@@ -14,6 +14,8 @@ fn skill(name: &str, agents: Vec<AgentId>) -> Item {
             tags: vec![],
             scope: vec![Scope::Project],
             agents,
+            tools: vec![],
+            native: std::collections::BTreeMap::new(),
         },
         "Do the thing.".to_string(),
     )

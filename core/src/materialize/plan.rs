@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::adapters::common::canonical_item_name;
+use crate::adapters::subagent;
 use crate::adapters::{Agent, DiscoveredContent};
 use crate::error::{Error, Result};
 use crate::model::{AgentId, ContentForm, Item, ItemKind, Scope};
@@ -137,6 +138,29 @@ pub fn plan_materialize(
                 scope,
                 &mut plan.warnings,
             )?);
+        }
+        // Never write a Cursor `.cursor/agents/` copy that would shadow Claude
+        // markdown (on disk or this sync). Skipped items drop out of
+        // rendered_paths so a previously tracked Cursor file is deleted.
+        // Untracked hand-written Cursor copies are warned — we do not delete
+        // files we never wrote.
+        if kind == ItemKind::Subagent && agent.id() == AgentId::Cursor {
+            let skipped: Vec<Item> = items
+                .iter()
+                .filter(|i| subagent::cursor_should_skip_subagent(i, scope, project_root))
+                .cloned()
+                .collect();
+            items.retain(|i| !subagent::cursor_should_skip_subagent(i, scope, project_root));
+            for item in skipped {
+                let rel = subagent::cursor_agents_dir().join(format!("{}.md", item.name()));
+                let rel_key = rel.to_string_lossy().into_owned();
+                let full = project_root.join(&rel);
+                if full.is_file() && !manifest.tracked_paths().any(|p| p == rel_key.as_str()) {
+                    plan.warnings.push(format!(
+                        "{rel_key} exists but was not written by shaic and would shadow                          Claude's agent of the same id — remove it by hand"
+                    ));
+                }
+            }
         }
         // Directory empties are handled by the delete pass below. A
         // SingleFile managed region lives inside a file shaic must never
@@ -302,6 +326,7 @@ pub fn reconcile_items(
     kind: ItemKind,
     scope: Scope,
     project_root: &Path,
+    force: bool,
 ) -> Result<ReconcileReport> {
     let mut report = ReconcileReport::default();
     // `discover_unowned` already yields nothing without a root, so this used
@@ -336,6 +361,13 @@ pub fn reconcile_items(
                 continue;
             }
         };
+        if kind == ItemKind::Subagent && existing.is_some() && !force {
+            report.rejected.push((
+                name,
+                "subagent already in store — refuse overwrite (pass force to replace)".to_string(),
+            ));
+            continue;
+        }
         if let Some(existing) = &existing {
             // Keep every scope the store already had this item materializing
             // into, plus this one — so pulling a change made via one agent
@@ -364,6 +396,23 @@ pub fn reconcile_items(
             // targeting, so an empty/default `agents` from parse must not
             // expand a restricted item to every agent.
             candidate.frontmatter.agents = existing.frontmatter.agents.clone();
+            if kind == ItemKind::Subagent {
+                // Force is last-wins for Subagent: disk tools (incl. empty)
+                // replace the store allowlist. Native for the importing agent
+                // is replaced or cleared; other agents' overlays stay.
+                let mut native = existing.frontmatter.native.clone();
+                let incoming = std::mem::take(&mut candidate.frontmatter.native);
+                let key = agent.id().as_str();
+                match incoming.get(key) {
+                    Some(v) => {
+                        native.insert(key.to_string(), v.clone());
+                    }
+                    None => {
+                        native.remove(key);
+                    }
+                }
+                candidate.frontmatter.native = native;
+            }
         }
         if existing.as_ref() == Some(&candidate) {
             continue;

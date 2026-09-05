@@ -14,6 +14,7 @@ pub fn run(
     project: bool,
     all: bool,
     yes: bool,
+    force: bool,
 ) -> Result<()> {
     let store = open_store()?;
     let targets = resolve_targets(agents, global, project, all, false)?;
@@ -38,6 +39,7 @@ pub fn run(
                         kind,
                         scope,
                         &targets.project_root,
+                        force,
                     );
                     any |= print_reconcile_report(
                         report,

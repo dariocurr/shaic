@@ -98,6 +98,7 @@ fn copilot_reconciles_skill_and_command_suffixes_and_skips_malformed_names() {
         ItemKind::Skill,
         Scope::Project,
         project.path(),
+        false,
     )
     .unwrap();
     assert_eq!(skill_report.pulled, vec!["react-conventions".to_string()]);
@@ -117,6 +118,7 @@ fn copilot_reconciles_skill_and_command_suffixes_and_skips_malformed_names() {
         ItemKind::Command,
         Scope::Project,
         project.path(),
+        false,
     )
     .unwrap();
     assert_eq!(command_report.pulled, vec!["release-checklist".to_string()]);

@@ -47,6 +47,7 @@ fn reconcile_refuses_to_silently_overwrite_a_corrupt_store_item() {
         ItemKind::Rule,
         Scope::Project,
         project.path(),
+        false,
     )
     .unwrap();
 

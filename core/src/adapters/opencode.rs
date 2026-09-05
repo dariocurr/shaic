@@ -8,6 +8,7 @@ use super::common::{
     reconcile_described_files, reconcile_heading_sections, render_as_directory,
     render_as_single_file, with_description,
 };
+use super::subagent;
 use super::{Agent, DiscoveredContent, McpConfigFormat, McpTarget, RenderedFile};
 
 pub struct OpenCode;
@@ -99,6 +100,7 @@ impl Agent for OpenCode {
                     heading_section(item, "##")
                 })
             }
+            ItemKind::Subagent => subagent::render_opencode(items, scope),
         }
     }
 
@@ -115,6 +117,7 @@ impl Agent for OpenCode {
             ItemKind::Skill => discover_skill_files(&root.join(skills_dir(scope)), scope),
             ItemKind::Command => discover_directory(&root.join(commands_dir(scope)), scope, "md"),
             ItemKind::Rule => discover_single_file(&root.join("AGENTS.md"), scope),
+            ItemKind::Subagent => subagent::discover_opencode(self, scope, project_root),
         }
     }
 
@@ -125,6 +128,7 @@ impl Agent for OpenCode {
                 reconcile_described_files(self, kind, scope, project_root, file_stem_name)
             }
             ItemKind::Rule => reconcile_heading_sections(self, kind, scope, project_root, "##"),
+            ItemKind::Subagent => subagent::reconcile_opencode(self, scope, project_root),
         }
     }
 

@@ -16,7 +16,7 @@ pub enum Screen {
 }
 
 /// One agent's sync state for a single scope, covering both content
-/// (skills/rules/commands) and MCP servers in that scope — `None` for
+/// (skills/rules/commands/subagents) and MCP servers in that scope — `None` for
 /// whichever axis this agent/scope combination doesn't support. Kept as one
 /// row per scope rather than one per (scope, axis): from the user's point of
 /// view "this agent, this scope" is one thing, not two.
@@ -89,7 +89,7 @@ fn move_index(index: usize, len: usize, delta: i32) -> usize {
 }
 
 /// Either kind of plan a Diff Preview can show — base materialization
-/// (skills/rules/commands) or MCP server sync. Kept as an enum rather than
+/// (skills/rules/commands/subagents) or MCP server sync. Kept as an enum rather than
 /// two optional fields so a preview is always unambiguously one or the
 /// other, matching the two independent code paths `plan_materialize` and
 /// `plan_mcp` already are in `shaic-core`.
@@ -225,7 +225,7 @@ impl App {
             let mut sub_rows = Vec::new();
             // Content and MCP support don't necessarily agree on which
             // scopes they cover (an agent can sync MCP servers in a scope it
-            // has no skills/rules/commands support for, or vice versa), so
+            // has no skills/rules/commands/subagents support for, or vice versa), so
             // each scope's row is built from the union of both axes rather
             // than assuming they line up.
             for &scope in &[Scope::Global, Scope::Project] {
@@ -475,7 +475,8 @@ impl App {
         self.browser.pending_kind = match self.browser.pending_kind {
             ItemKind::Skill => ItemKind::Rule,
             ItemKind::Rule => ItemKind::Command,
-            ItemKind::Command => ItemKind::Skill,
+            ItemKind::Command => ItemKind::Subagent,
+            ItemKind::Subagent => ItemKind::Skill,
         };
     }
 
@@ -492,7 +493,7 @@ impl App {
         }
         let kind = self.browser.pending_kind;
         Some(PendingAction::EditItem {
-            initial: shaic_core::store::item_template(&name),
+            initial: shaic_core::store::item_template(kind, &name),
             kind,
             name,
             is_new: true,
@@ -667,6 +668,7 @@ impl App {
                         kind,
                         scope,
                         &self.project_root,
+                        false,
                     ) {
                         rejections.extend(report.rejected);
                         pulled += report.pulled.len();

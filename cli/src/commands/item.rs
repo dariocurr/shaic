@@ -15,7 +15,7 @@ pub fn run(action: ItemAction) -> Result<()> {
             if store.load_item(kind, &name).is_ok() {
                 bail!("{kind:?} {name:?} already exists — use `shaic item edit` instead");
             }
-            let raw = shaic_core::editor::edit_in_editor(&store::item_template(&name))?;
+            let raw = shaic_core::editor::edit_in_editor(&store::item_template(kind, &name))?;
             let item = store::parse_item(kind, &raw)?;
             if item.name() != name {
                 bail!(

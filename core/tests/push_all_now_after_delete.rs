@@ -13,6 +13,8 @@ fn skill(name: &str) -> Item {
             tags: vec![],
             scope: vec![Scope::Project],
             agents: AgentId::ALL.to_vec(),
+            tools: vec![],
+            native: std::collections::BTreeMap::new(),
         },
         "Do the thing.".to_string(),
     )

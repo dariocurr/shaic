@@ -34,6 +34,8 @@ fn reconcile_ignores_hand_written_notes_outside_the_managed_block_and_keeps_desc
                     tags: vec!["typescript".to_string()],
                     scope: vec![Scope::Project],
                     agents: AgentId::ALL.to_vec(),
+                    tools: vec![],
+                    native: std::collections::BTreeMap::new(),
                 },
                 "Body.".to_string(),
             )
@@ -63,6 +65,7 @@ fn reconcile_ignores_hand_written_notes_outside_the_managed_block_and_keeps_desc
             ItemKind::Rule,
             Scope::Project,
             project.path(),
+            false,
         )
         .unwrap();
         assert!(

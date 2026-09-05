@@ -42,6 +42,8 @@ fn sample_item(name: &str) -> Item {
             tags: vec![],
             scope: vec![Scope::Project],
             agents: AgentId::ALL.to_vec(),
+            tools: vec![],
+            native: std::collections::BTreeMap::new(),
         },
         "Body text.".to_string(),
     )

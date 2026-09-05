@@ -11,6 +11,7 @@ pub mod cursor;
 pub mod gemini;
 pub mod google_antigravity;
 pub mod opencode;
+pub mod subagent;
 pub mod windsurf;
 
 #[derive(Debug, Clone)]
