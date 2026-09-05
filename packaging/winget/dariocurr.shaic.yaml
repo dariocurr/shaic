@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.5.0.schema.json
 PackageIdentifier: dariocurr.shaic
-PackageVersion: 0.2.0
+PackageVersion: 0.3.0
 PackageLocale: en-US
 Publisher: dariocurr
 PackageName: shaic
@@ -18,15 +18,15 @@ Installers:
     NestedInstallerFiles:
       - RelativeFilePath: shaic.exe
         PortableCommandAlias: shaic
-    InstallerUrl: https://github.com/dariocurr/shaic/releases/download/v0.2.0/shaic-x86_64-pc-windows-msvc.zip
-    InstallerSha256: 88ef49cd4eafd96a1affd4291e8fd374dcde4421647eb81735f0daeff87f2e3c
+    InstallerUrl: https://github.com/dariocurr/shaic/releases/download/v0.3.0/shaic-x86_64-pc-windows-msvc.zip
+    InstallerSha256: 572bf32ac1477579a95c25222a3c2e07bb7bf1e66e163b5b331c8993b9099e32
   - Architecture: arm64
     InstallerType: zip
     NestedInstallerType: portable
     NestedInstallerFiles:
       - RelativeFilePath: shaic.exe
         PortableCommandAlias: shaic
-    InstallerUrl: https://github.com/dariocurr/shaic/releases/download/v0.2.0/shaic-aarch64-pc-windows-msvc.zip
-    InstallerSha256: f733fc5cbcf41ee36ffae2fd380ccf6836ac7c6df8a654801325129d55870427
+    InstallerUrl: https://github.com/dariocurr/shaic/releases/download/v0.3.0/shaic-aarch64-pc-windows-msvc.zip
+    InstallerSha256: 676ae876c36e9b40a87df2a24b16a1e8228e62a95d48499d4bc6c7b42b03602b
 ManifestType: singleton
 ManifestVersion: 1.5.0
