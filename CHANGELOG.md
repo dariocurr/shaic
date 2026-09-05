@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## 0.3.0
+
 ### Added
 
 - `ItemKind::Subagent` — share persona + tools across Claude Code, OpenCode,
