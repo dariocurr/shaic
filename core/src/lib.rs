@@ -6,6 +6,7 @@ pub mod error;
 pub mod materialize;
 pub mod mcp;
 pub mod model;
+pub mod operations;
 pub mod platform;
 pub mod security;
 pub mod store;

@@ -237,6 +237,13 @@ pub fn write_item(
     contents: &str,
 ) -> Result<(PathBuf, WriteAction)> {
     let target = path_guard::ensure_within(root, relative_path)?;
+    // `ensure_within` is pure and creates nothing — materialize the root
+    // explicitly only after validation passed, so a rejected path never
+    // litters the filesystem.
+    fs::create_dir_all(root).map_err(|source| Error::Io {
+        path: root.to_path_buf(),
+        source,
+    })?;
     let action = classify(&target, form, contents);
     if action == WriteAction::NoOp {
         return Ok((target, action));

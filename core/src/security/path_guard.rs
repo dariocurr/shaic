@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::error::{Error, Result};
 
@@ -9,17 +9,13 @@ use crate::error::{Error, Result};
 /// outside `root`. This is the ONLY function materialize::writer trusts to
 /// decide whether a write target is safe.
 ///
-/// SIDE EFFECT: this **creates `root`** (and its ancestors) if it doesn't
-/// exist. That is not incidental — `root` has to exist to be canonicalized,
-/// and callers rely on it, so a first-ever `shaic sync` into an agent
-/// directory that isn't there yet succeeds instead of failing. Passing a
-/// speculative or user-supplied `root` here will therefore create directories
-/// on disk even if the answer turns out to be "rejected".
+/// Pure with respect to `root`: never creates directories. Callers that need
+/// `root` on disk (first sync into a missing agent tree) must
+/// `create_dir_all` **after** this returns `Ok`.
 pub fn ensure_within(root: &Path, candidate: &Path) -> Result<PathBuf> {
-    fs::create_dir_all(root).map_err(|source| Error::Io {
-        path: root.to_path_buf(),
-        source,
-    })?;
+    if !root.exists() {
+        return ensure_within_missing_root(root, candidate);
+    }
     let root_canon = fs::canonicalize(root).map_err(|source| Error::Io {
         path: root.to_path_buf(),
         source,
@@ -41,6 +37,51 @@ pub fn ensure_within(root: &Path, candidate: &Path) -> Result<PathBuf> {
 
     check_no_escaping_symlinks(&root_canon, &candidate_abs)?;
     Ok(resolved)
+}
+
+/// When `root` is not on disk yet, containment is checked lexically — there
+/// is nothing to canonicalize and nothing to create.
+fn ensure_within_missing_root(root: &Path, candidate: &Path) -> Result<PathBuf> {
+    let root_abs = lexical_normalize(&absoluteize(root)?);
+    let candidate_abs = if candidate.is_absolute() {
+        lexical_normalize(candidate)
+    } else {
+        lexical_normalize(&root_abs.join(candidate))
+    };
+    if !candidate_abs.starts_with(&root_abs) {
+        return Err(Error::PathEscape {
+            root: root_abs,
+            candidate: candidate_abs,
+        });
+    }
+    Ok(candidate_abs)
+}
+
+fn absoluteize(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+    let cwd = std::env::current_dir().map_err(|source| Error::Io {
+        path: PathBuf::from("."),
+        source,
+    })?;
+    Ok(cwd.join(path))
+}
+
+fn lexical_normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => out.push(prefix.as_os_str()),
+            Component::RootDir => out.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::Normal(part) => out.push(part),
+        }
+    }
+    out
 }
 
 /// Re-run the ancestor-symlink check right before a filesystem mutation, to
@@ -139,10 +180,28 @@ mod tests {
     }
 
     #[test]
+    fn accepts_relative_path_when_root_is_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("agent-root");
+        let resolved = ensure_within(&missing, Path::new("skills/foo/SKILL.md")).unwrap();
+        assert!(resolved.starts_with(&missing));
+        assert!(!missing.exists());
+    }
+
+    #[test]
     fn rejects_dotdot_escape() {
         let root = tempfile::tempdir().unwrap();
         let err = ensure_within(root.path(), Path::new("../../etc/passwd"));
         assert!(matches!(err, Err(Error::PathEscape { .. })), "got {err:?}");
+    }
+
+    #[test]
+    fn rejects_dotdot_escape_without_creating_missing_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("not-yet");
+        let err = ensure_within(&missing, Path::new("../../etc/passwd"));
+        assert!(matches!(err, Err(Error::PathEscape { .. })), "got {err:?}");
+        assert!(!missing.exists());
     }
 
     #[test]

@@ -1,3 +1,5 @@
+use shaic_core::operations;
+
 use crate::error::Result;
 
 use super::open_store;
@@ -13,7 +15,8 @@ pub fn run(allow_secrets: bool, json: bool) -> Result<()> {
         println!("already up to date");
         return Ok(());
     }
-    println!("pulled changes:");
+    let (message, _) = operations::format_pull(&result);
+    println!("{message}:");
     if let Some(stat) = result.diff_stat {
         println!("{stat}");
     }

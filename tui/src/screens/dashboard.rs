@@ -6,7 +6,6 @@ use ratatui::widgets::{Cell, Row, Table};
 
 use crate::app::App;
 use crate::screens;
-use crate::theme;
 
 /// The single "am I okay?" glance screen: one row per agent, showing the
 /// worst status across every scope/content axis that agent supports. `Enter`
@@ -31,8 +30,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
             Row::new(vec![
                 Cell::from(row.name.clone()),
                 Cell::from(Span::styled(
-                    format!("{} {}", theme::glyph_icon(row.glyph), row.glyph),
-                    Style::default().fg(theme::glyph_color(row.glyph)),
+                    format!("{} {}", row.glyph.icon(), row.glyph.as_str()),
+                    Style::default().fg(row.glyph.color()),
                 )),
             ])
             .style(screens::row_style(i == app.selected_agent_row))
@@ -49,6 +48,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     frame.render_widget(
         screens::footer(
             &app.message,
+            app.message_kind,
             "   [p=push u=pull s=browse  i=setup  ?=help  q=quit  p/u ask y/N]",
         ),
         chunks[2],

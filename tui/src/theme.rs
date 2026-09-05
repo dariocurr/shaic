@@ -21,42 +21,123 @@ pub const SELECTION_BG: Color = Color::Rgb(38, 33, 64);
 
 pub const WORDMARK: &str = "⟡ shaic";
 
-/// Color for a dashboard/status glyph string (`"in-sync"`, `"drift"`, ...).
-pub fn glyph_color(glyph: &str) -> Color {
-    match glyph {
-        "in-sync" => SUCCESS,
-        "drift" => WARNING,
-        "unconfirmed" | "experimental, read-only" => INFO,
-        _ => DANGER,
+/// Machine-readable sync status. Replaces the old `&'static str` glyphs
+/// (`"in-sync"`, `"drift"`, ...) so a typo becomes a compile error instead of
+/// a silent red `✕`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    InSync,
+    Drift,
+    Unconfirmed,
+    Error,
+}
+
+impl Status {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Status::InSync => "in-sync",
+            Status::Drift => "drift",
+            Status::Unconfirmed => "unconfirmed",
+            Status::Error => "error",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Status::InSync => "●",
+            Status::Drift => "▲",
+            Status::Unconfirmed => "◐",
+            Status::Error => "✕",
+        }
+    }
+
+    pub fn color(self) -> Color {
+        match self {
+            Status::InSync => SUCCESS,
+            Status::Drift => WARNING,
+            Status::Unconfirmed => INFO,
+            Status::Error => DANGER,
+        }
+    }
+
+    fn rank(self) -> u8 {
+        match self {
+            Status::Error => 0,
+            Status::Drift => 1,
+            Status::Unconfirmed => 2,
+            Status::InSync => 3,
+        }
+    }
+
+    /// Worst-of across sub-rows: a single scope problem is visible at top level.
+    pub fn worst(statuses: impl Iterator<Item = Status>) -> Status {
+        statuses.min_by_key(|s| s.rank()).unwrap_or(Status::InSync)
     }
 }
 
-/// Icon paired with `glyph_color` for the same glyph string, so a status
-/// scans by shape as well as by color (readable at a glance, and still
-/// meaningful for anyone colorblind or piping output through `less`).
-pub fn glyph_icon(glyph: &str) -> &'static str {
-    match glyph {
-        "in-sync" => "●",
-        "drift" => "▲",
-        "unconfirmed" | "experimental, read-only" => "◐",
-        _ => "✕",
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
-/// Best-effort color for a free-form status-line message, based on the
-/// vocabulary this crate's own `app.message`/error strings actually use.
-/// Wrong guesses are harmless (cosmetic only), so a substring heuristic is
-/// fine here — no need for every call site to tag its own message kind.
+impl From<&str> for Status {
+    fn from(s: &str) -> Self {
+        match s {
+            "in-sync" => Status::InSync,
+            "drift" => Status::Drift,
+            "unconfirmed" | "experimental, read-only" => Status::Unconfirmed,
+            _ => Status::Error,
+        }
+    }
+}
+
+/// Explicit message severity. Call sites tag their own message instead of
+/// relying on substring sniffing — wrong guesses were harmless cosmetically
+/// but hid real errors behind `Reset` coloring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MessageKind {
+    Success,
+    Warning,
+    #[default]
+    Info,
+    Error,
+}
+
+impl MessageKind {
+    pub fn color(self) -> Color {
+        match self {
+            MessageKind::Success => SUCCESS,
+            MessageKind::Warning => WARNING,
+            MessageKind::Error => DANGER,
+            MessageKind::Info => Color::Reset,
+        }
+    }
+}
+
+/// Explicit color for a tagged status-line message.
+pub fn message_color_for_kind(kind: MessageKind) -> Color {
+    kind.color()
+}
+
+/// Legacy fallback for free-form strings (wizard status) that don't carry a
+/// `MessageKind` yet. Kept substring-based; prefer tagging new messages.
 pub fn message_color(message: &str) -> Color {
+    message_kind_for_legacy(message).color()
+}
+
+/// Best-effort kind for a free-form message, based on the vocabulary this
+/// crate's own messages actually use.
+pub fn message_kind_for_legacy(message: &str) -> MessageKind {
     let lower = message.to_lowercase();
     if lower.contains("error")
         || lower.contains("failed")
         || lower.contains("could not")
         || lower.contains("not registered")
     {
-        DANGER
+        MessageKind::Error
     } else if lower.starts_with("no ") {
-        WARNING
+        MessageKind::Warning
     } else if lower.contains("applied")
         || lower.contains("ready")
         || lower.contains("removed")
@@ -65,9 +146,9 @@ pub fn message_color(message: &str) -> Color {
         || lower.contains("pulled")
         || lower.contains("in sync")
     {
-        SUCCESS
+        MessageKind::Success
     } else {
-        Color::Reset
+        MessageKind::Info
     }
 }
 
@@ -79,5 +160,47 @@ pub fn kind_color(kind: ItemKind) -> Color {
         ItemKind::Rule => Color::Rgb(45, 212, 191),
         ItemKind::Command => Color::Rgb(232, 121, 249),
         ItemKind::Subagent => Color::Rgb(251, 146, 60),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_worst_prefers_error_over_drift_over_unconfirmed() {
+        assert_eq!(
+            Status::worst([Status::InSync, Status::Drift].into_iter()),
+            Status::Drift
+        );
+        assert_eq!(
+            Status::worst([Status::InSync, Status::Unconfirmed].into_iter()),
+            Status::Unconfirmed
+        );
+        assert_eq!(
+            Status::worst([Status::Drift, Status::Error].into_iter()),
+            Status::Error
+        );
+        assert_eq!(Status::worst([].into_iter()), Status::InSync);
+    }
+
+    #[test]
+    fn status_from_str_maps_legacy_readonly_to_unconfirmed() {
+        assert_eq!(Status::from("in-sync"), Status::InSync);
+        assert_eq!(Status::from("experimental, read-only"), Status::Unconfirmed);
+        assert_eq!(Status::from("bogus"), Status::Error);
+    }
+
+    #[test]
+    fn legacy_message_heuristic_tags_errors_and_success() {
+        assert_eq!(
+            message_kind_for_legacy("push failed: boom"),
+            MessageKind::Error
+        );
+        assert_eq!(
+            message_kind_for_legacy("pushed 3 items"),
+            MessageKind::Success
+        );
+        assert_eq!(message_kind_for_legacy("q=quit"), MessageKind::Info);
     }
 }

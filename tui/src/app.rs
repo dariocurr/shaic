@@ -6,6 +6,8 @@ use shaic_core::materialize::{self, MaterializePlan, McpPlan, WriteAction};
 use shaic_core::model::{AgentId, ItemKind, Scope};
 use shaic_core::store::Store;
 
+use crate::theme::{MessageKind, Status};
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     SetupWizard,
@@ -22,40 +24,25 @@ pub enum Screen {
 /// view "this agent, this scope" is one thing, not two.
 pub struct AgentSubRow {
     pub scope: Scope,
-    pub content_glyph: Option<&'static str>,
-    pub mcp_glyph: Option<&'static str>,
+    pub content_glyph: Option<Status>,
+    pub mcp_glyph: Option<Status>,
 }
 
 pub struct AgentRow {
     pub id: AgentId,
     pub name: String,
-    /// Worst-of across every `sub_rows` entry — see `worst_glyph`.
-    pub glyph: &'static str,
+    /// Worst-of across every `sub_rows` entry — see `Status::worst`.
+    pub glyph: Status,
     pub sub_rows: Vec<AgentSubRow>,
 }
 
-/// Precedence for combining several sub-row statuses into one glyph for the
-/// agent as a whole: a single scope/content-axis problem should be visible
-/// at the top level even if every other axis is fine.
-fn worst_glyph(glyphs: impl Iterator<Item = &'static str>) -> &'static str {
-    fn rank(glyph: &str) -> u8 {
-        match glyph {
-            "error" => 0,
-            "drift" => 1,
-            "unconfirmed" => 2,
-            _ => 3, // "in-sync"
-        }
-    }
-    glyphs.min_by_key(|g| rank(g)).unwrap_or("in-sync")
-}
-
-/// The status glyph for one already-computed plan, keyed on whether it came
+/// The status for one already-computed plan, keyed on whether it came
 /// out empty (nothing to write) — shared by the base-content and MCP passes.
-fn plan_glyph(in_sync: shaic_core::Result<bool>) -> &'static str {
+fn plan_glyph(in_sync: shaic_core::Result<bool>) -> Status {
     match in_sync {
-        Ok(true) => "in-sync",
-        Ok(false) => "drift",
-        Err(_) => "error",
+        Ok(true) => Status::InSync,
+        Ok(false) => Status::Drift,
+        Err(_) => Status::Error,
     }
 }
 
@@ -137,9 +124,46 @@ pub struct DiffPreviewState {
 
 pub struct AgentDetailSubRow {
     pub scope: Scope,
-    pub content_glyph: Option<&'static str>,
-    pub mcp_glyph: Option<&'static str>,
-    pub lines: Vec<String>,
+    pub content_glyph: Option<Status>,
+    pub mcp_glyph: Option<Status>,
+    pub lines: Vec<DetailLine>,
+}
+
+/// One line in Agent Detail with explicit severity — replaces the old
+/// substring heuristic (`contains("up to date")`, ...) in `detail_line_color`.
+#[derive(Debug, Clone)]
+pub struct DetailLine {
+    pub text: String,
+    pub kind: MessageKind,
+}
+
+impl DetailLine {
+    pub fn info(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            kind: MessageKind::Info,
+        }
+    }
+
+    pub fn status(text: impl Into<String>, status: Status) -> Self {
+        let kind = match status {
+            Status::InSync => MessageKind::Success,
+            Status::Drift => MessageKind::Warning,
+            Status::Unconfirmed => MessageKind::Info,
+            Status::Error => MessageKind::Error,
+        };
+        Self {
+            text: text.into(),
+            kind,
+        }
+    }
+
+    pub fn error(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            kind: MessageKind::Error,
+        }
+    }
 }
 
 pub struct AgentDetailState {
@@ -166,7 +190,9 @@ pub enum PendingAction {
 pub enum PendingConfirm {
     DeleteItem,
     Push,
+    PushForce,
     Pull,
+    PullForce,
     ApplyDiff,
     ImportScope,
 }
@@ -178,12 +204,15 @@ pub struct App {
     pub agent_rows: Vec<AgentRow>,
     pub selected_agent_row: usize,
     pub message: String,
+    pub message_kind: MessageKind,
     pub wizard: WizardState,
     pub browser: BrowserState,
     pub diff: Option<DiffPreviewState>,
     pub detail: Option<AgentDetailState>,
     pub pull_rejections: Vec<(String, String)>,
     pub pending_confirm: Option<PendingConfirm>,
+    pub detail_scroll: u16,
+    pub diff_scroll: u16,
 }
 
 impl App {
@@ -201,15 +230,23 @@ impl App {
             agent_rows: Vec::new(),
             selected_agent_row: 0,
             message: "q=quit".to_string(),
+            message_kind: MessageKind::Info,
             wizard: WizardState::default(),
             browser: BrowserState::default(),
             diff: None,
             detail: None,
             pull_rejections: Vec::new(),
             pending_confirm: None,
+            detail_scroll: 0,
+            diff_scroll: 0,
         };
         app.refresh_dashboard();
         Ok(app)
+    }
+
+    pub fn set_message(&mut self, kind: MessageKind, message: impl Into<String>) {
+        self.message = message.into();
+        self.message_kind = kind;
     }
 
     // ---- Dashboard ----
@@ -231,7 +268,7 @@ impl App {
             for &scope in &[Scope::Global, Scope::Project] {
                 let content_glyph = agent.supported_scopes().contains(&scope).then(|| {
                     if agent.experimental_read_only() {
-                        "unconfirmed"
+                        Status::Unconfirmed
                     } else {
                         plan_glyph(
                             materialize::plan_materialize(agent, &store, scope, &self.project_root)
@@ -258,7 +295,7 @@ impl App {
                 });
             }
 
-            let glyph = worst_glyph(
+            let glyph = Status::worst(
                 sub_rows
                     .iter()
                     .flat_map(|r| r.content_glyph.into_iter().chain(r.mcp_glyph)),
@@ -284,6 +321,15 @@ impl App {
             detail.selected_sub_row =
                 move_index(detail.selected_sub_row, detail.sub_rows.len(), delta);
         }
+        self.detail_scroll = 0;
+    }
+
+    pub fn scroll_detail(&mut self, delta: i32) {
+        self.detail_scroll = self.detail_scroll.saturating_add_signed(delta as i16);
+    }
+
+    pub fn scroll_diff(&mut self, delta: i32) {
+        self.diff_scroll = self.diff_scroll.saturating_add_signed(delta as i16);
     }
 
     pub fn request_confirm(&mut self, action: PendingConfirm) {
@@ -298,7 +344,13 @@ impl App {
                 )
             }
             PendingConfirm::Push => "push store to remote? [y/N]".to_string(),
+            PendingConfirm::PushForce => {
+                "push blocked by secret scan — push anyway? [y/N]".to_string()
+            }
             PendingConfirm::Pull => "pull store from remote? [y/N]".to_string(),
+            PendingConfirm::PullForce => {
+                "pull blocked by secret scan — pull anyway? [y/N]".to_string()
+            }
             PendingConfirm::ApplyDiff => {
                 "apply these changes (writes agent files from the store)? [y/N]".to_string()
             }
@@ -316,48 +368,90 @@ impl App {
             }
         };
         self.pending_confirm = Some(action);
-        self.message = prompt;
+        self.set_message(MessageKind::Info, prompt);
     }
 
     pub fn cancel_confirm(&mut self) {
         self.pending_confirm = None;
-        self.message = "cancelled".to_string();
+        self.set_message(MessageKind::Info, "cancelled");
     }
 
     pub fn take_confirm(&mut self) -> Option<PendingConfirm> {
         self.pending_confirm.take()
     }
 
+    fn operation_kind_to_message(kind: shaic_core::operations::OperationKind) -> MessageKind {
+        match kind {
+            shaic_core::operations::OperationKind::Success => MessageKind::Success,
+            shaic_core::operations::OperationKind::Warning => MessageKind::Warning,
+            shaic_core::operations::OperationKind::Error => MessageKind::Error,
+            shaic_core::operations::OperationKind::Info => MessageKind::Info,
+        }
+    }
+
     pub fn push(&mut self) {
-        self.message = match Store::default_path()
-            .and_then(Store::open)
-            .and_then(|s| s.push(false))
-        {
-            Ok(r) if r.pushed && r.committed => {
-                format!("pushed: {}", r.summary.unwrap_or_default())
+        self.push_with(false);
+    }
+
+    fn push_with(&mut self, allow_secrets: bool) {
+        let result = Store::default_path().and_then(Store::open).and_then(|s| {
+            shaic_core::operations::push_store(&s, allow_secrets).map_err(|e| match e {
+                shaic_core::Error::SecretDetected(msg) if !allow_secrets => {
+                    shaic_core::Error::SecretDetected(msg)
+                }
+                other => other,
+            })
+        });
+        match result {
+            Ok((msg, kind)) => self.set_message(Self::operation_kind_to_message(kind), msg),
+            Err(shaic_core::Error::SecretDetected(msg)) if !allow_secrets => {
+                self.set_message(
+                    MessageKind::Error,
+                    format!(
+                        "push blocked by secret scan: {msg} — use CLI `--i-know-what-im-doing` or confirm override [y/N]"
+                    ),
+                );
+                self.pending_confirm = Some(PendingConfirm::PushForce);
             }
-            Ok(r) if r.pushed => {
-                format!(
-                    "pushed previously-unpushed commits: {}",
-                    r.summary.unwrap_or_default()
-                )
-            }
-            Ok(_) => "nothing to push".to_string(),
-            Err(e) => format!("push failed: {e}"),
-        };
-        self.refresh_dashboard();
+            Err(e) => self.set_message(MessageKind::Error, format!("push failed: {e}")),
+        }
+        // Refresh unless we're waiting on an override confirm (which would
+        // wipe the explanatory message's context by redrawing stale rows).
+        if self.pending_confirm.is_none() {
+            self.refresh_dashboard();
+        }
+    }
+
+    pub fn push_force(&mut self) {
+        self.push_with(true);
     }
 
     pub fn pull(&mut self) {
-        self.message = match Store::default_path()
+        self.pull_with(false);
+    }
+
+    fn pull_with(&mut self, allow_secrets: bool) {
+        let result = Store::default_path()
             .and_then(Store::open)
-            .and_then(|s| s.pull(false))
-        {
-            Ok(r) if r.updated => "pulled changes".to_string(),
-            Ok(_) => "already up to date".to_string(),
-            Err(e) => format!("pull failed: {e}"),
-        };
-        self.refresh_dashboard();
+            .and_then(|s| shaic_core::operations::pull_store(&s, allow_secrets));
+        match result {
+            Ok((msg, kind)) => self.set_message(Self::operation_kind_to_message(kind), msg),
+            Err(shaic_core::Error::SecretDetected(msg)) if !allow_secrets => {
+                self.set_message(
+                    MessageKind::Error,
+                    format!("pull blocked by secret scan: {msg} — confirm override? [y/N]"),
+                );
+                self.pending_confirm = Some(PendingConfirm::PullForce);
+            }
+            Err(e) => self.set_message(MessageKind::Error, format!("pull failed: {e}")),
+        }
+        if self.pending_confirm.is_none() {
+            self.refresh_dashboard();
+        }
+    }
+
+    pub fn pull_force(&mut self) {
+        self.pull_with(true);
     }
 
     // ---- Setup wizard ----
@@ -379,21 +473,28 @@ impl App {
             self.wizard.status = format!("init failed: {e}");
             return;
         }
-        self.message = match Config::load() {
+        let (msg, kind) = match Config::load() {
             Ok(mut config) => {
                 if config.set_remote(&url).is_ok() {
                     let _ = config.save();
                 }
-                format!(
-                    "store ready (remote: {})",
-                    shaic_core::store::git::redact_userinfo(&url)
+                (
+                    format!(
+                        "store ready (remote: {})",
+                        shaic_core::store::git::redact_userinfo(&url)
+                    ),
+                    MessageKind::Success,
                 )
             }
-            Err(e) => format!(
-                "store ready (remote: {}), but config is corrupted and was left untouched: {e}",
-                shaic_core::store::git::redact_userinfo(&url)
+            Err(e) => (
+                format!(
+                    "store ready (remote: {}), but config is corrupted and was left untouched: {e}",
+                    shaic_core::store::git::redact_userinfo(&url)
+                ),
+                MessageKind::Warning,
             ),
         };
+        self.set_message(kind, msg);
         self.screen = Screen::Dashboard;
         self.refresh_dashboard();
     }
@@ -438,13 +539,13 @@ impl App {
     /// handing off to `$EDITOR`.
     pub fn load_selected_for_edit(&mut self) -> Option<PendingAction> {
         let Some(row) = self.selected_item().cloned() else {
-            self.message = "no item selected".to_string();
+            self.set_message(MessageKind::Warning, "no item selected");
             return None;
         };
         let store = match Store::default_path().and_then(Store::open) {
             Ok(s) => s,
             Err(e) => {
-                self.message = format!("could not open store: {e}");
+                self.set_message(MessageKind::Error, format!("could not open store: {e}"));
                 return None;
             }
         };
@@ -456,7 +557,10 @@ impl App {
                 is_new: false,
             }),
             Err(e) => {
-                self.message = format!("could not load {:?} {:?}: {e}", row.kind, row.name);
+                self.set_message(
+                    MessageKind::Error,
+                    format!("could not load {:?} {:?}: {e}", row.kind, row.name),
+                );
                 None
             }
         }
@@ -488,7 +592,10 @@ impl App {
             return None;
         }
         if shaic_core::model::validate_name(&name).is_err() {
-            self.message = format!("{name:?} is not a valid item name");
+            self.set_message(
+                MessageKind::Error,
+                format!("{name:?} is not a valid item name"),
+            );
             return None;
         }
         let kind = self.browser.pending_kind;
@@ -505,22 +612,28 @@ impl App {
             return;
         };
         let Ok(store) = Store::default_path().and_then(Store::open) else {
-            self.message = "no store yet".to_string();
+            self.set_message(MessageKind::Error, "no store yet");
             return;
         };
         match store.remove_item(row.kind, &row.name) {
             Ok(()) => {
                 let (applied, notes) = materialize::push_all_now(&store, &self.project_root);
-                self.message = if let Some(note) = notes.first() {
-                    format!("removed {:?} {:?}, but: {note}", row.kind, row.name)
+                if let Some(note) = notes.first() {
+                    self.set_message(
+                        MessageKind::Warning,
+                        format!("removed {:?} {:?}, but: {note}", row.kind, row.name),
+                    );
                 } else {
-                    format!(
-                        "removed {:?} {:?}, pushed to {applied} agent/scope(s)",
-                        row.kind, row.name
-                    )
-                };
+                    self.set_message(
+                        MessageKind::Success,
+                        format!(
+                            "removed {:?} {:?}, pushed to {applied} agent/scope(s)",
+                            row.kind, row.name
+                        ),
+                    );
+                }
             }
-            Err(e) => self.message = format!("remove failed: {e}"),
+            Err(e) => self.set_message(MessageKind::Error, format!("remove failed: {e}")),
         }
         self.refresh_browser();
     }
@@ -535,7 +648,7 @@ impl App {
         let raw = match edited {
             Ok(raw) => raw,
             Err(e) => {
-                self.message = format!("editor failed: {e}");
+                self.set_message(MessageKind::Error, format!("editor failed: {e}"));
                 return;
             }
         };
@@ -551,13 +664,14 @@ impl App {
                 store.save_item(&item)
             });
         match result {
-            Ok(()) => {
-                self.message = format!(
+            Ok(()) => self.set_message(
+                MessageKind::Success,
+                format!(
                     "{} {kind:?} {name:?}",
                     if is_new { "added" } else { "updated" }
-                )
-            }
-            Err(e) => self.message = format!("save failed: {e}"),
+                ),
+            ),
+            Err(e) => self.set_message(MessageKind::Error, format!("save failed: {e}")),
         }
         self.refresh_browser();
     }
@@ -569,18 +683,18 @@ impl App {
             match Config::load() {
                 Ok(mut config) => {
                     if let Err(e) = config.ensure_project_registered(&self.project_root) {
-                        self.message = format!("{e}");
+                        self.set_message(MessageKind::Error, format!("{e}"));
                         return;
                     }
                 }
                 Err(e) => {
-                    self.message = format!("could not load config: {e}");
+                    self.set_message(MessageKind::Error, format!("could not load config: {e}"));
                     return;
                 }
             }
         }
         let Ok(store) = Store::default_path().and_then(Store::open) else {
-            self.message = "no store yet".to_string();
+            self.set_message(MessageKind::Error, "no store yet");
             return;
         };
         let agent_impl = adapters::by_id(agent);
@@ -594,9 +708,10 @@ impl App {
         match plan {
             Ok(plan) => {
                 self.diff = Some(DiffPreviewState { agent, scope, plan });
+                self.diff_scroll = 0;
                 self.screen = Screen::DiffPreview;
             }
-            Err(e) => self.message = format!("could not compute plan: {e}"),
+            Err(e) => self.set_message(MessageKind::Error, format!("could not compute plan: {e}")),
         }
     }
 
@@ -636,9 +751,17 @@ impl App {
 
         match result {
             Ok((changed, warnings)) => {
-                self.message = format!("applied {changed} change(s){}", warn_suffix(&warnings))
+                let kind = if warnings.is_empty() {
+                    MessageKind::Success
+                } else {
+                    MessageKind::Warning
+                };
+                self.set_message(
+                    kind,
+                    format!("applied {changed} change(s){}", warn_suffix(&warnings)),
+                );
             }
-            Err(e) => self.message = format!("apply failed: {e}"),
+            Err(e) => self.set_message(MessageKind::Error, format!("apply failed: {e}")),
         }
         self.return_from_diff_preview();
     }
@@ -651,45 +774,30 @@ impl App {
         let agent = detail.agent;
         let scope = sub.scope;
         let agent_impl = adapters::by_id(agent);
-        let mut pulled = 0;
-        let mut rejections = Vec::new();
         let result = Store::default_path().and_then(Store::open).map(|store| {
-            if let Ok(report) =
-                materialize::reconcile_mcp(agent_impl, &store, scope, &self.project_root)
-            {
-                rejections.extend(report.rejected);
-                pulled += report.pulled.len();
-            }
-            if agent_impl.supported_scopes().contains(&scope) {
-                for &kind in agent_impl.supported_kinds() {
-                    if let Ok(report) = materialize::reconcile_items(
-                        agent_impl,
-                        &store,
-                        kind,
-                        scope,
-                        &self.project_root,
-                        false,
-                    ) {
-                        rejections.extend(report.rejected);
-                        pulled += report.pulled.len();
-                    }
-                }
-            }
+            shaic_core::operations::import_scope(
+                agent_impl,
+                &store,
+                scope,
+                &self.project_root,
+                false,
+            )
         });
-        self.pull_rejections = rejections;
-        let rejected_suffix = if self.pull_rejections.is_empty() {
-            String::new()
-        } else {
-            let names: Vec<_> = self
-                .pull_rejections
-                .iter()
-                .map(|(name, reason)| format!("{name:?} ({reason})"))
-                .collect();
-            format!(" — skipped: {}", names.join(", "))
-        };
         match result {
-            Ok(()) => self.message = format!("imported {pulled} item(s){rejected_suffix}"),
-            Err(e) => self.message = format!("import failed: {e}"),
+            Ok(summary) => {
+                self.pull_rejections = summary.rejected.clone();
+                let (msg, op_kind) = summary.message();
+                let kind = Self::operation_kind_to_message(op_kind);
+                let mut full = msg;
+                if !summary.warnings.is_empty() {
+                    full.push_str(&format!(" — warnings: {}", summary.warnings.join("; ")));
+                }
+                if !summary.errors.is_empty() {
+                    full.push_str(&format!(" — errors: {}", summary.errors.join("; ")));
+                }
+                self.set_message(kind, full);
+            }
+            Err(e) => self.set_message(MessageKind::Error, format!("import failed: {e}")),
         }
         self.refresh_dashboard();
         if let Some(idx) = self.agent_rows.iter().position(|r| r.id == agent) {
@@ -744,6 +852,7 @@ impl App {
             sub_rows,
             selected_sub_row,
         });
+        self.detail_scroll = 0;
         self.screen = Screen::AgentDetail;
     }
 
@@ -760,26 +869,31 @@ impl App {
         store: &Option<Store>,
     ) -> AgentDetailSubRow {
         let scope = sub.scope;
-        let mut lines = Vec::new();
+        let mut lines: Vec<DetailLine> = Vec::new();
 
         let content_glyph = sub.content_glyph.is_some().then(|| {
-            lines.push("── content ──".to_string());
-            lines.push(match agent_impl.root(scope, &self.project_root) {
-                Some(root) => format!("location: {}", root.display()),
-                // No home directory to root this scope at, so nothing will be
-                // written for it — say so instead of showing a path shaic
-                // would refuse to use.
-                None => "location: unavailable — no home directory on this machine".to_string(),
-            });
+            lines.push(DetailLine::info("── content ──"));
+            lines.push(DetailLine::info(
+                match agent_impl.root(scope, &self.project_root) {
+                    Some(root) => format!("location: {}", root.display()),
+                    // No home directory to root this scope at, so nothing will be
+                    // written for it — say so instead of showing a path shaic
+                    // would refuse to use.
+                    None => "location: unavailable — no home directory on this machine".to_string(),
+                },
+            ));
             if agent_impl.experimental_read_only() {
-                lines.push(
-                    "convention unconfirmed — read-only, nothing will be written here".to_string(),
-                );
-                return "unconfirmed";
+                lines.push(DetailLine::info(
+                    "convention unconfirmed — read-only, nothing will be written here",
+                ));
+                return Status::Unconfirmed;
             }
             for &kind in agent_impl.supported_kinds() {
                 let discovered = agent_impl.discover_existing(kind, scope, &self.project_root);
-                lines.push(format!("{kind:?}: {} on disk", discovered.len()));
+                lines.push(DetailLine::info(format!(
+                    "{kind:?}: {} on disk",
+                    discovered.len()
+                )));
             }
             match store {
                 Some(store) => {
@@ -790,20 +904,26 @@ impl App {
                         &self.project_root,
                     ) {
                         Ok(plan) => {
-                            lines.push(pending_line(
-                                plan.changed_writes().count(),
-                                plan.deletes.len(),
-                                "delete",
+                            let status = plan_glyph(Ok(plan.is_empty()));
+                            lines.push(DetailLine::status(
+                                pending_line(
+                                    plan.changed_writes().count(),
+                                    plan.deletes.len(),
+                                    "delete",
+                                ),
+                                status,
                             ));
-                            plan_glyph(Ok(plan.is_empty()))
+                            status
                         }
                         Err(e) => {
-                            lines.push(format!("could not check for pending changes: {e}"));
-                            "error"
+                            lines.push(DetailLine::error(format!(
+                                "could not check for pending changes: {e}"
+                            )));
+                            Status::Error
                         }
                     }
                 }
-                None => "error",
+                None => Status::Error,
             }
         });
 
@@ -812,26 +932,32 @@ impl App {
                 .mcp_target(scope, &self.project_root)
                 .map(|t| t.path)
                 .unwrap_or_default();
-            lines.push("── mcp servers ──".to_string());
-            lines.push(format!("location: {}", root.display()));
+            lines.push(DetailLine::info("── mcp servers ──"));
+            lines.push(DetailLine::info(format!("location: {}", root.display())));
             match store {
                 Some(store) => {
                     match materialize::plan_mcp(agent_impl, store, scope, &self.project_root) {
                         Ok(plan) => {
-                            lines.push(pending_line(
-                                plan.changed_writes().count(),
-                                plan.removals.len(),
-                                "remove",
+                            let status = plan_glyph(Ok(plan.is_empty()));
+                            lines.push(DetailLine::status(
+                                pending_line(
+                                    plan.changed_writes().count(),
+                                    plan.removals.len(),
+                                    "remove",
+                                ),
+                                status,
                             ));
-                            plan_glyph(Ok(plan.is_empty()))
+                            status
                         }
                         Err(e) => {
-                            lines.push(format!("could not check for pending changes: {e}"));
-                            "error"
+                            lines.push(DetailLine::error(format!(
+                                "could not check for pending changes: {e}"
+                            )));
+                            Status::Error
                         }
                     }
                 }
-                None => "error",
+                None => Status::Error,
             }
         });
 
@@ -845,5 +971,40 @@ impl App {
 
     pub fn selected_row(&self) -> Option<&AgentRow> {
         self.agent_rows.get(self.selected_agent_row)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detail_line_status_maps_to_message_kind() {
+        assert_eq!(
+            DetailLine::status("up to date", Status::InSync).kind,
+            MessageKind::Success
+        );
+        assert_eq!(
+            DetailLine::status("not yet pushed", Status::Drift).kind,
+            MessageKind::Warning
+        );
+        assert_eq!(
+            DetailLine::status("unconfirmed", Status::Unconfirmed).kind,
+            MessageKind::Info
+        );
+        assert_eq!(DetailLine::error("boom").kind, MessageKind::Error);
+    }
+
+    #[test]
+    fn operation_kind_maps_to_message_kind() {
+        use shaic_core::operations::OperationKind;
+        assert_eq!(
+            App::operation_kind_to_message(OperationKind::Success),
+            MessageKind::Success
+        );
+        assert_eq!(
+            App::operation_kind_to_message(OperationKind::Error),
+            MessageKind::Error
+        );
     }
 }

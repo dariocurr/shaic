@@ -1,12 +1,11 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, List, ListItem, Paragraph, Row, Table};
 
 use crate::app::App;
 use crate::screens;
-use crate::theme;
 
 /// Drill-down from a dashboard row: every scope/content-axis sub-row for
 /// this agent (Global/Project, base content and MCP, whichever the agent
@@ -56,8 +55,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
             let mut spans = Vec::new();
             if let Some(glyph) = sub.content_glyph {
                 spans.push(Span::styled(
-                    format!("content {} {glyph}", theme::glyph_icon(glyph)),
-                    Style::default().fg(theme::glyph_color(glyph)),
+                    format!("content {} {}", glyph.icon(), glyph.as_str()),
+                    Style::default().fg(glyph.color()),
                 ));
             }
             if let Some(glyph) = sub.mcp_glyph {
@@ -65,8 +64,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     spans.push(Span::raw("   "));
                 }
                 spans.push(Span::styled(
-                    format!("mcp {} {glyph}", theme::glyph_icon(glyph)),
-                    Style::default().fg(theme::glyph_color(glyph)),
+                    format!("mcp {} {}", glyph.icon(), glyph.as_str()),
+                    Style::default().fg(glyph.color()),
                 ));
             }
             Row::new(vec![
@@ -89,33 +88,25 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .map(|sub| sub.lines.clone())
         .unwrap_or_default()
         .into_iter()
+        .skip(app.detail_scroll as usize)
         .map(|line| {
-            let color = detail_line_color(&line);
-            ListItem::new(Line::styled(line, Style::default().fg(color)))
+            ListItem::new(Line::styled(
+                line.text,
+                Style::default().fg(line.kind.color()),
+            ))
         })
         .collect();
-    frame.render_widget(List::new(items).block(screens::panel("details")), chunks[3]);
+    frame.render_widget(
+        List::new(items).block(screens::panel("details (PgUp/PgDn scroll)")),
+        chunks[3],
+    );
 
     frame.render_widget(
         screens::footer(
             &app.message,
+            app.message_kind,
             "   [↑/↓ select scope  y=content diff  m=mcp diff  ?=help  Esc=back]",
         ),
         chunks[4],
     );
-}
-
-/// Colors a detail line by what it reports. Same "read the message we
-/// ourselves produced" heuristic as `theme::message_color`, matched against
-/// the plan-summary strings `App::build_*_detail_sub_row` builds.
-fn detail_line_color(line: &str) -> Color {
-    if line.contains("could not") {
-        theme::message_color(line)
-    } else if line.contains("up to date") {
-        theme::glyph_color("in-sync")
-    } else if line.contains("not yet pushed") {
-        theme::glyph_color("drift")
-    } else {
-        Color::Reset
-    }
 }

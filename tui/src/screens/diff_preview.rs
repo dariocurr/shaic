@@ -97,11 +97,17 @@ pub fn draw(frame: &mut Frame, app: &App) {
             Style::default().fg(theme::SUCCESS),
         )));
     }
-    let list = List::new(lines).block(screens::panel_focused("planned changes"));
+    let visible: Vec<ListItem> = lines.into_iter().skip(app.diff_scroll as usize).collect();
+    let list =
+        List::new(visible).block(screens::panel_focused("planned changes (PgUp/PgDn scroll)"));
     frame.render_widget(list, chunks[2]);
 
     frame.render_widget(
-        screens::footer(&app.message, "   [a=apply (asks y/N)  ?=help  Esc=cancel]"),
+        screens::footer(
+            &app.message,
+            app.message_kind,
+            "   [a=apply (asks y/N)  ?=help  Esc=cancel]",
+        ),
         chunks[3],
     );
 }

@@ -62,13 +62,17 @@ pub(crate) fn panel(title: impl Into<String>) -> Block<'static> {
 }
 
 /// The bordered status line every full screen ends with: the app's current
-/// message, colored by its own vocabulary, followed by that screen's key hints
+/// message, colored by its explicit kind, followed by that screen's key hints
 /// (dimmed — the message is the thing worth noticing, the hints are reference).
-pub(crate) fn footer(message: &str, hints: &str) -> Paragraph<'static> {
+pub(crate) fn footer(
+    message: &str,
+    kind: crate::theme::MessageKind,
+    hints: &str,
+) -> Paragraph<'static> {
     framed_footer(Line::from(vec![
         Span::styled(
             message.to_string(),
-            Style::default().fg(theme::message_color(message)),
+            Style::default().fg(theme::message_color_for_kind(kind)),
         ),
         Span::styled(
             hints.to_string(),

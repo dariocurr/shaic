@@ -834,6 +834,10 @@ fn write_managed_json_object(
     base: &Path,
 ) -> Result<()> {
     let target = path_guard::ensure_within(base, path)?;
+    std::fs::create_dir_all(base).map_err(|source| Error::Io {
+        path: base.to_path_buf(),
+        source,
+    })?;
     let mut top = read_top_level_json(&target)?;
     let inner: serde_json::Map<String, serde_json::Value> =
         object.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
@@ -885,6 +889,10 @@ fn write_toml_tables(
     base: &Path,
 ) -> Result<()> {
     let target = path_guard::ensure_within(base, path)?;
+    std::fs::create_dir_all(base).map_err(|source| Error::Io {
+        path: base.to_path_buf(),
+        source,
+    })?;
     let mut doc = read_toml_document(&target)?;
     if doc.get(prefix).is_none() {
         let mut empty = Table::new();

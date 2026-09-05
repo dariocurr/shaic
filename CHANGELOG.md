@@ -2,6 +2,21 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## Unreleased
+
+### Added
+
+- `ItemKind::Subagent` — share persona + tools across Claude Code, OpenCode,
+  Cursor, and Codex (`subagents/<name>.md`, Claude vocabulary as interchange,
+  `native.<agent>` overlays round-trip provider-only fields).
+- Empty `tools` stays restrictive (Cursor `readonly`, OpenCode deny
+  edit/bash/webfetch, Codex `sandbox_mode = "read-only"`).
+- `shaic import --force` for subagent overwrite (last-wins with force).
+- Shared `operations` helpers for CLI/TUI push, pull, and import messaging.
+- Typed TUI status/messages; confirmed override when secret scan blocks a push.
+- `path_guard::ensure_within` no longer creates directories on reject (callers
+  create roots only after validation succeeds).
+
 ## 0.2.0
 
 ### Added

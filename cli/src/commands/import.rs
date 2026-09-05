@@ -1,6 +1,4 @@
-use shaic_core::adapters;
-use shaic_core::materialize;
-use shaic_core::model::Scope;
+use shaic_core::operations;
 
 use crate::error::Result;
 
@@ -26,28 +24,33 @@ pub fn run(
 
     let mut any = false;
     for &id in &targets.agents {
-        let agent = adapters::by_id(id);
+        let agent = shaic_core::adapters::by_id(id);
         for &scope in &targets.scopes {
-            let report = materialize::reconcile_mcp(agent, &store, scope, &targets.project_root);
-            any |= print_reconcile_report(report, agent.display_name(), scope, "MCP");
-
-            if agent.supported_scopes().contains(&scope) {
-                for &kind in agent.supported_kinds() {
-                    let report = materialize::reconcile_items(
-                        agent,
-                        &store,
-                        kind,
-                        scope,
-                        &targets.project_root,
-                        force,
-                    );
-                    any |= print_reconcile_report(
-                        report,
-                        agent.display_name(),
-                        scope,
-                        &format!("{kind:?}"),
-                    );
-                }
+            let summary =
+                operations::import_scope(agent, &store, scope, &targets.project_root, force);
+            // Same summary shape the TUI uses: pulled/rejected first, then
+            // collected per-kind errors (previously swallowed in TUI with
+            // `if let Ok`, printed as `[skip]` here).
+            for name in &summary.pulled {
+                println!(
+                    "[pulled] {name:?} from {} / {scope:?}",
+                    agent.display_name()
+                );
+                any = true;
+            }
+            for (name, reason) in &summary.rejected {
+                println!(
+                    "[skip] could not pull {name:?} from {} / {scope:?}: {reason}",
+                    agent.display_name()
+                );
+                any = true;
+            }
+            for note in &summary.warnings {
+                println!("[warn] {} / {scope:?}: {note}", agent.display_name());
+            }
+            for err in &summary.errors {
+                println!("[skip] {err}");
+                any = true;
             }
         }
     }
@@ -56,34 +59,4 @@ pub fn run(
         println!("nothing new to import.");
     }
     Ok(())
-}
-
-fn print_reconcile_report(
-    result: shaic_core::error::Result<materialize::ReconcileReport>,
-    agent_name: &str,
-    scope: Scope,
-    tag: &str,
-) -> bool {
-    match result {
-        Ok(report) => {
-            let mut any = !report.pulled.is_empty();
-            for name in &report.pulled {
-                println!("[pulled] {name:?} from {agent_name} / {scope:?} ({tag})");
-            }
-            for (name, reason) in &report.rejected {
-                any = true;
-                println!(
-                    "[skip] could not pull {name:?} from {agent_name} / {scope:?} ({tag}): {reason}"
-                );
-            }
-            for note in &report.warnings {
-                println!("[warn] {agent_name} / {scope:?} ({tag}): {note}");
-            }
-            any
-        }
-        Err(e) => {
-            println!("[skip] import {agent_name} / {scope:?} ({tag}): {e}");
-            true
-        }
-    }
 }

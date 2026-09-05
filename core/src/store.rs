@@ -479,10 +479,18 @@ fn apply_subagent_default_agents(kind: ItemKind, fm_raw: &str, frontmatter: &mut
 }
 
 fn frontmatter_has_agents_key(fm_raw: &str) -> bool {
-    fm_raw.lines().any(|line| {
-        let trimmed = line.trim_start();
-        trimmed == "agents:" || trimmed.starts_with("agents:") || trimmed.starts_with("agents :")
-    })
+    // Parse, don't scan: a line-prefix check false-positives on `agents:` inside
+    // block scalars / comments and misses `agents :` spacing variants. YAML
+    // parsing handles all of that. On unparseable frontmatter return false —
+    // `parse_strict`/`parse_lenient` will surface the real error.
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(fm_raw)
+        .map(|v| match v {
+            serde_yaml_ng::Value::Mapping(map) => {
+                map.contains_key(serde_yaml_ng::Value::String("agents".to_string()))
+            }
+            _ => false,
+        })
+        .unwrap_or(false)
 }
 
 /// Starter template opened in `$EDITOR` for `shaic item add`.
@@ -747,5 +755,24 @@ mod tests {
             item.frontmatter.agents,
             vec![crate::model::AgentId::ClaudeCode]
         );
+    }
+
+    #[test]
+    fn agents_key_detection_ignores_comments_and_block_scalars() {
+        // Commented-out key must not count as present.
+        assert!(!frontmatter_has_agents_key(
+            "name: x\ndescription: y\n# agents: [claude-code]\n"
+        ));
+        // `agents:` inside a block scalar is text, not a key.
+        assert!(!frontmatter_has_agents_key(
+            "name: x\ndescription: |\n  agents: not a key\n"
+        ));
+        // Spacing variants and flow styles do count.
+        assert!(frontmatter_has_agents_key("name: x\nagents : [cursor]\n"));
+        assert!(frontmatter_has_agents_key("name: x\nagents: []\n"));
+        // Quoted description mentioning `agents:` must not count.
+        assert!(!frontmatter_has_agents_key(
+            "name: x\ndescription: \"agents: foo\"\n"
+        ));
     }
 }

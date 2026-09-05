@@ -70,6 +70,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         ))),
         None => screens::footer(
             &app.message,
+            app.message_kind,
             "   [↑/↓=move a=add e=edit d=delete  ?=help  Esc=back]",
         ),
     };

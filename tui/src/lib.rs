@@ -122,7 +122,9 @@ fn event_loop(terminal: &mut Term, app: &mut App, guard: &mut TerminalGuard) -> 
                         match action {
                             PendingConfirm::DeleteItem => app.remove_selected_item(),
                             PendingConfirm::Push => app.push(),
+                            PendingConfirm::PushForce => app.push_force(),
                             PendingConfirm::Pull => app.pull(),
+                            PendingConfirm::PullForce => app.pull_force(),
                             PendingConfirm::ApplyDiff => app.apply_diff_preview(),
                             PendingConfirm::ImportScope => app.import_selected_scope(),
                         }
@@ -278,6 +280,10 @@ fn handle_diff_preview_key(app: &mut App, code: KeyCode) {
     match code {
         KeyCode::Esc => app.return_from_diff_preview(),
         KeyCode::Char('a') => app.request_confirm(PendingConfirm::ApplyDiff),
+        KeyCode::PageUp => app.scroll_diff(-10),
+        KeyCode::PageDown => app.scroll_diff(10),
+        KeyCode::Up | KeyCode::Char('k') => app.scroll_diff(-1),
+        KeyCode::Down | KeyCode::Char('j') => app.scroll_diff(1),
         _ => {}
     }
 }
@@ -291,6 +297,8 @@ fn handle_agent_detail_key(app: &mut App, code: KeyCode) {
         }
         KeyCode::Up | KeyCode::Char('k') => app.move_detail_selection(-1),
         KeyCode::Down | KeyCode::Char('j') => app.move_detail_selection(1),
+        KeyCode::PageUp => app.scroll_detail(-10),
+        KeyCode::PageDown => app.scroll_detail(10),
         KeyCode::Char('y') => {
             if let Some(detail) = &app.detail
                 && let Some(sub) = detail.sub_rows.get(detail.selected_sub_row)
